@@ -66,16 +66,30 @@ const LOSS_TREE = {
       "Cierre de negocio":{desc:"Cerro o traspaso el negocio"},
       "Sin interes":{desc:"No quiere continuar con el KD"},
       "Imposibilidad personal":{desc:"Motivos personales, salud, cambio de pais"},
+      "Sin pago extra PC":{desc:"Cliente no realizo el pago adicional requerido para Mac/PC premium"},
       "Otro motivo baja":{desc:"Baja sin subcategoria especifica"},
     }
   },
   "Ghosting":{desc:"Cliente dejo de responder a toda comunicacion",color:"#9B59B6",subs:{}},
   "Sin pago IVA/IGIC":{desc:"Cliente no realizo pago de impuestos requeridos",color:"#E67E22",subs:{}},
+  "Incidencia logistica":{
+    desc:"Fallo en entrega, logistica o devolucion del equipo PC",color:"#E67E22",
+    subs:{
+      "PC incorrecto entregado":{desc:"Se entrego equipo distinto al solicitado"},
+      "Envio direccion incorrecta":{desc:"Error de direccion en envio del PC"},
+      "PC perdido en transito":{desc:"Paquete perdido por transportista (SEUR u otro)"},
+      "Fallo mayorista":{desc:"Mayorista no gestiono a tiempo y caduco el plazo"},
+      "Falta envio PC":{desc:"El PC nunca fue enviado o entregado al cliente"},
+      "Danyo PC":{desc:"PC entregado con dano fisico"},
+    }
+  },
   "Error tecnico":{
     desc:"Error en automatizacion, memoria bloqueada o proyecto no apto",color:"#636E72",
     subs:{
       "Error automatizacion":{desc:"Fallo en sistema automatizado"},
       "Proyecto no apto":{desc:"No cumple condiciones para ejecucion"},
+      "Sin saldo disponible":{desc:"Importe del bono consumido o sin saldo disponible"},
+      "Error plataforma Red.es":{desc:"Fallo en la plataforma Red.es impidio firma o tramitacion"},
     }
   },
 };
@@ -87,37 +101,85 @@ const PROCESS_CATEGORIES = {
   "Gestion memoria":"Memoria en preparacion o correccion",
   "Error/Revision":"Error tecnico, en revision por tramitacion",
   "Rechazo brief":"Brief rechazado, pendiente nueva gestion",
+  "Sin firma beneficiario":"Acuerdo creado, pendiente de aceptacion por el cliente",
+  "Sin saldo disponible":"Importe consumido o no disponible en el bono",
+  "Bono no conseguido":"Subvencion concedida pero sin numero de bono",
+  "Cambio servicio":"En proceso de cambio de producto o ADA",
+  "Escalado":"Caso escalado a equipo de soporte o gestion",
+  "Error de importe PC":"Importe del acuerdo no coincide con el PC elegido, requiere correccion",
 };
+
+/* ========== KEY NORMALIZER + FIELD ACCESSOR ========== */
+function normalizeKey(s) {
+  return String(s).toLowerCase()
+    .replace(/[º°ª]/g,'a')
+    .replace(/[áàâãä]/g,'a').replace(/[éèêë]/g,'e').replace(/[íìîï]/g,'i')
+    .replace(/[óòôõö]/g,'o').replace(/[úùûü]/g,'u').replace(/[ñ]/g,'n')
+    .replace(/\s+/g,' ').trim();
+}
+function getField(row, ...keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== "") return String(row[key]).replace(/\r/g,'').trim();
+    const normKey = normalizeKey(key);
+    const rowKeys = Object.keys(row);
+    const exact = rowKeys.find(k => normalizeKey(k) === normKey);
+    if (exact !== undefined) return String(row[exact] || '').replace(/\r/g,'').trim();
+    const partial = rowKeys.find(k => normalizeKey(k).includes(normKey));
+    if (partial !== undefined) return String(row[partial] || '').replace(/\r/g,'').trim();
+  }
+  return '';
+}
+function getFieldExact(row, key) {
+  if (row[key] !== undefined && row[key] !== null && row[key] !== "") return String(row[key]).replace(/\r/g,'').trim();
+  const normKey = normalizeKey(key);
+  const rowKeys = Object.keys(row);
+  const exact = rowKeys.find(k => normalizeKey(k) === normKey);
+  if (exact !== undefined) return String(row[exact] || '').replace(/\r/g,'').trim();
+  return '';
+}
+function shortVal(v, maxLen=70) { return (v && v.length <= maxLen) ? v : ''; }
 
 /* ========== CSV PARSER ========== */
 function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const lines = []; let cur = "", inQ = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === '"') { if (inQ && text[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
-    else if ((ch === "\n" || ch === "\r") && !inQ) { if (cur.trim()) lines.push(cur); cur = ""; if (ch === "\r" && text[i+1] === "\n") i++; }
+    else if ((ch === "\n" || ch === "\r") && !inQ) { const t = cur.replace(/\r/g,'').trim(); if (t) lines.push(t); cur = ""; if (ch === "\r" && text[i+1] === "\n") i++; }
     else cur += ch;
   }
-  if (cur.trim()) lines.push(cur);
+  const t = cur.replace(/\r/g,'').trim(); if (t) lines.push(t);
   const parseRow = l => {
     const f = []; let field = "", q = false;
     for (let i = 0; i < l.length; i++) { const c = l[i]; if (c === '"') { if (q && l[i+1] === '"') { field += '"'; i++; } else q = !q; } else if (c === "," && !q) { f.push(field.trim()); field = ""; } else field += c; }
     f.push(field.trim()); return f;
   };
-  const hdr = parseRow(lines[0]);
-  return { headers: hdr, rows: lines.slice(1).map(l => { const v = parseRow(l); const o = {}; hdr.forEach((h,i) => o[h] = v[i] || ""); return o; }).filter(r => r[hdr[0]]) };
+  const hdr = parseRow(lines[0]).map(h => h.trim().replace(/\s+/g,' '));
+  return { headers: hdr, rows: lines.slice(1).map(l => { const v = parseRow(l); const o = {}; hdr.forEach((h,i) => o[h] = (v[i] || "").replace(/\r/g,'').trim()); return o; }).filter(r => r[hdr[0]]) };
 }
 
 function detectCSVType(headers, rows) {
+  // Detect Acuerdo/Subvencion type first
+  const isAcuerdo = headers.some(h => /oficializ/i.test(h));
+  if (isAcuerdo) {
+    return { memo: "Acuerdos", group: "MKT", label: "Acuerdos \u00b7 MKT", isM2: false, isAcuerdo: true, isPC: false };
+  }
   const hasM2 = headers.some(h => /2([.\u00ba\u00aa]|da|a)\s*memoria/i.test(h));
   const hasPres2 = headers.some(h => /presentaci[o\u00f3]n\s*2/i.test(h));
   const isM2 = hasM2 || hasPres2;
   const memo = isM2 ? "Memoria 2" : "Memoria 1";
-  const prods = rows.map(r => extractProduct(r["Project name"] || r[headers[1]] || ""));
+  // Detect PC type by headers
+  const isPC = headers.some(h => /nombre\s*pc/i.test(h)) || headers.some(h => /pc\s*pipeline/i.test(h));
+  if (isPC) {
+    return { memo, group: "PC", label: `${memo} \u00b7 PC`, isM2, isAcuerdo: false, isPC: true };
+  }
+  // Default: detect group from product codes in data
+  const prods = rows.map(r => extractProduct(getField(r, "Project name", "Nombre PC") || r[headers[1]] || ""));
   const pcC = prods.filter(p => p === "PC").length;
   const mktC = prods.filter(p => p !== "PC" && p !== "OTRO").length;
   const group = pcC > mktC ? "PC" : "MKT";
-  return { memo, group, label: `${memo} \u00b7 ${group}`, isM2 };
+  return { memo, group, label: `${memo} \u00b7 ${group}`, isM2, isAcuerdo: false, isPC: false };
 }
 
 function extractProduct(n) {
@@ -126,25 +188,35 @@ function extractProduct(n) {
   return "OTRO";
 }
 
-/* ========== COLUMN HELPERS (M1/M2) ========== */
-function getDateCol(row, isM2) {
-  if (isM2) return (row["Fecha caducidad 2\u00aa memoria"]||row["Fecha caducidad 2\u00ba memoria"]||row["Fecha caducidad 2a memoria"]||"").trim();
-  return (row["Fecha caducidad 1\u00ba memoria"]||row["Fecha caducidad 1\u00aa memoria"]||row["Fecha caducidad 1a memoria"]||"").trim();
+/* ========== COLUMN HELPERS (M1/M2/PC/Acuerdo) ========== */
+function getDateCol(row, isM2, isAcuerdo) {
+  if (isAcuerdo) return getField(row, "Fecha Caducidad Subvenci\u00f3n", "Fecha Caducidad Subvencion");
+  if (isM2) return getField(row, "Fecha caducidad 2\u00aa memoria", "Fecha caducidad 2\u00ba memoria", "Fecha caducidad 2a memoria");
+  return getField(row, "Fecha caducidad 1\u00ba memoria", "Fecha caducidad 1\u00aa memoria", "Fecha caducidad 1a memoria");
 }
-function getPresCol(row, isM2) {
-  if (isM2) return (row["Fecha Presentaci\u00f3n 2a Memoria"]||row["Fecha Presentacion 2a Memoria"]||"").trim();
-  return (row["Fecha Presentaci\u00f3n 1a Memoria"]||row["Fecha Presentacion 1a Memoria"]||"").trim();
+function getPresCol(row, isM2, isAcuerdo) {
+  if (isAcuerdo) return getField(row, "Fecha Acuerdo Oficializado");
+  if (isM2) return getField(row, "Fecha Presentaci\u00f3n 2a Memoria", "Fecha Presentacion 2a Memoria");
+  return getField(row, "Fecha Presentaci\u00f3n 1a Memoria", "Fecha Presentacion 1a Memoria");
 }
-function getEstadoMem(row, isM2) {
-  if (isM2) return (row["Estado 2a Memoria Project (project)"]||"").toUpperCase().trim();
-  return (row["Estado 1a Memoria Project (project)"]||"").toUpperCase().trim();
+function getEstadoMem(row, isM2, isAcuerdo) {
+  if (isAcuerdo) return shortVal(getFieldExact(row, "Estado Subvenci\u00f3n") || getFieldExact(row, "Estado Subvencion"), 60).toUpperCase().trim();
+  const v = isM2
+    ? getFieldExact(row, "Estado 2a Memoria Project (project)")
+    : getFieldExact(row, "Estado 1a Memoria Project (project)");
+  return shortVal(v, 60).toUpperCase().trim();
 }
-function getComment(row, isM2) {
-  if (isM2) return (row["Comentarios Memoria 2"]||row["Comentarios Memoria 1"]||"").trim();
-  return (row["Comentarios Memoria 1"]||row["Comentarios Memoria 2"]||"").trim();
+function getComment(row, isM2, isAcuerdo) {
+  if (isAcuerdo) return getField(row, "Comentarios Oficializaci\u00f3n", "Comentarios Oficializacion");
+  if (isM2) return getField(row, "Comentarios Memoria 2", "Comentarios Memoria 1");
+  return getField(row, "Comentarios Memoria 1", "Comentarios Memoria 2");
 }
 function getBajaDate(row) {
-  return (row["Fecha baja definitiva - MKT"]||row["Fecha baja definitiva"]||"").trim();
+  return getField(row, "Fecha baja definitiva - MKT", "Fecha baja definitiva");
+}
+function getPipeline(row) {
+  const v = getFieldExact(row, "Project pipeline stage") || getFieldExact(row, "PC pipeline stage");
+  return shortVal(v, 60).toUpperCase().trim();
 }
 
 /* ========== UTILS ========== */
@@ -160,106 +232,189 @@ function getWeekLabel(w) {
 }
 
 /* ========== CLASSIFICATION ========== */
-function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s).getTime()); }
+const PC_CANCELLED_STAGES = ["ACUERDO VENCIDO Y BONO CADUCADO","NO CALIFICADO","DUPLICADOS"];
+function isCancelledPipeline(pipeline, isPC) {
+  if (isPC) return PC_CANCELLED_STAGES.includes(pipeline);
+  return pipeline === "CANCELADO";
+}
+function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && s !== "0000-00-00" && !isNaN(new Date(s).getTime()); }
 
-function classifyStatus(row, isM2) {
+function hasReverseETL(c1, ops) {
+  const c = ((c1||"")+" "+(ops||"")).toLowerCase();
+  return c.includes("reversetl") || c.includes("reverse etl") || c.includes("reverse-etl");
+}
+
+function classifyStatus(row, isM2, isAcuerdo) {
+  if (isAcuerdo) {
+    const fp = getField(row, "Fecha Acuerdo Oficializado");
+    if (fp && isValidDate(fp)) return "salvado";
+    const pipeline = getPipeline(row);
+    const c1 = getField(row, "Comentarios Oficializaci\u00f3n", "Comentarios Oficializacion");
+    const ops = getField(row, "Comentarios OPS");
+    const c = (c1+" "+ops).toLowerCase();
+    if (c.startsWith("perdido") || pipeline === "CANCELADO") return "perdido";
+    return "en_proceso";
+  }
   // SALVADO = UNICAMENTE si tiene fecha de presentacion valida
   const fp = getPresCol(row, isM2);
   if (fp && isValidDate(fp)) return "salvado";
 
+  const pipeline = getPipeline(row);
+  const c1 = getComment(row, isM2);
+  const ops = getField(row, "Comentarios OPS");
+
+  // ReverseETL con pipeline activo → en_proceso (rescatable)
+  if (hasReverseETL(c1, ops) && pipeline !== "CANCELADO") return "en_proceso";
+
   // Comentario dice perdido explicitamente
-  const c = getComment(row, isM2).toLowerCase();
+  const c = c1.toLowerCase();
   if (c.startsWith("perdido") || c.startsWith("perdida") || c === "duplicado") return "perdido";
 
   // Estado Acuerdo desistido/renuncia/finalizado
-  const ea = (row["Estado Acuerdo"]||"").toLowerCase().trim();
+  const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
   if (ea === "desistido" || ea.includes("renuncia") || ea.includes("finalizado")) return "perdido";
 
   // Pipeline CANCELADO + indicios de perdida en comentario
-  const pipeline = (row["Project pipeline stage"]||"").toUpperCase().trim();
   if (pipeline === "CANCELADO") {
     if (c.includes("perdido")||c.includes("perdida")||c.includes("baja")||c.includes("ghost")||c.includes("desist")||c.includes("cancelado")||!c) return "perdido";
   }
 
+  // Check texto completo (MEM + OPS) para bajas definitivas no detectadas antes
+  const cFull = ((c1||"")+" "+(ops||"")).toLowerCase();
+  if (
+    cFull.includes("baja de proyecto") ||
+    cFull.includes("solicita baja") || cFull.includes("solicitud de baja") ||
+    cFull.includes("se dio de baja") ||
+    (cFull.includes("baja") && (cFull.includes("cierre") || cFull.includes("negocio") ||
+      cFull.includes("aut\u00f3nomo") || cFull.includes("autonomo") || cFull.includes("jubil"))) ||
+    cFull.includes("proyecto cancelado")
+  ) return "perdido";
+
   return "en_proceso";
 }
 
-function classifyLossDetailed(c1, ops, row) {
+function classifyLossDetailed(c1, ops, row, isAcuerdo) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
-  const ea = (row["Estado Acuerdo"]||"").toLowerCase();
+  if (isAcuerdo) {
+    if (c.includes("sin saldo")||c.includes("importe consumido")) return {cat:"Error tecnico",sub:"Sin saldo disponible",subsub:""};
+    if (c.includes("cambio ada")||c.includes("cambio de servicio")||c.includes("cambio servicio")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Cambio servicio"};
+    return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
+  }
+  const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
 
-  // --- Retorno: {cat, sub, subsub} (3 niveles) ---
-  // cat = categoria top-level (Baja cliente, Ghosting, Sin pago IVA/IGIC, Error tecnico)
-  // sub = subcategoria (Descontento servicio, Desistido, Baja autonomo, etc.)
-  // subsub = detalle final (Calidad del proyecto, Cambio servicio, etc.)
-
-  // Cambio servicio → Baja cliente > Desistido > Cambio servicio
-  if (c.includes("cambio de servicio")||c.includes("cambio servicio")||c.includes("cambio a rrss")||c.includes("cambio a web")||c.includes("cambio a fact")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Cambio servicio"};
-  // Error de importe → Baja cliente > Desistido > Error de importe
-  if (c.includes("error en importe")||c.includes("error de importe")||c.includes("importe incorrecto")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Error de importe"};
-
-  // Problemas PC → Baja cliente > Descontento servicio > Problemas entrega/stock PC
-  if (c.includes("gestión pc")||c.includes("gestion pc")||c.includes("stock")||c.includes("macbook")||c.includes("inconveniente con pc")||c.includes("entrega del ordenador")||c.includes("rechazo de pc")||c.includes("ordenador pro")) return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Problemas entrega/stock PC"};
-
-  // Sin pago IVA/IGIC → top-level
-  if (c.includes("no pago")||c.includes("no quiere pagar")||(c.includes("igic")&&!c.includes("pendiente pago igic"))||(c.includes("iva")&&(c.includes("no quiere pagar")||c.includes("no pago")||c.includes("no desea pagar")))) return {cat:"Sin pago IVA/IGIC",sub:"",subsub:""};
-
-  // Calidad proyecto → Baja cliente > Descontento servicio > Calidad del proyecto
-  if (c.includes("calidad")||(c.includes("contenido")&&c.includes("ia"))||c.includes("muy genérico")||c.includes("muy generico")||c.includes("no le gusta")||c.includes("no le gustaba")||c.includes("imágenes no adecuadas")||c.includes("no los convenció")||c.includes("no los convencio")) return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Calidad del proyecto"};
-
-  // Atencion recibida → Baja cliente > Descontento servicio > Atencion recibida
-  if (c.includes("atención recibida")||c.includes("atencion recibida")||c.includes("falta de comunicación")||c.includes("falta de comunicacion")||c.includes("falta de transparencia")||c.includes("nadie le contact")||c.includes("nadie se ha contactado")||(c.includes("bot")&&c.includes("contact"))||c.includes("mala reputación")||c.includes("mala reputacion")||c.includes("reseñas")||c.includes("desatención")) return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Atencion recibida"};
-
-  // No era lo prometido → Baja cliente > Descontento servicio > No era lo prometido
-  if (c.includes("no era lo prometido")||c.includes("pensaban que era")||c.includes("se le oficializó")||c.includes("sin su consentimiento")||c.includes("no autorizado")) return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"No era lo prometido"};
-
-  // Descontento servicio general → Baja cliente > Descontento servicio > Calidad del proyecto
-  if (c.includes("descontento")||c.includes("inconformidad")||c.includes("insatisf")||c.includes("no está a gusto")||c.includes("no esta a gusto")||(c.includes("no desea continuar")&&c.includes("servicio"))) return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Calidad del proyecto"};
-
-  // Ghosting → top-level
-  if (/ghost/.test(c)||(c.includes("no contesta")&&!c.includes("baja"))||(c.includes("sin respuesta")&&!c.includes("baja"))) return {cat:"Ghosting",sub:"",subsub:""};
-
-  // Baja autonomo → Baja cliente > Baja autonomo
-  if ((c.includes("baja")&&(c.includes("autónomo")||c.includes("autonomo")))||c.includes("jubilación")||c.includes("jubilacion")) return {cat:"Baja cliente",sub:"Baja autonomo",subsub:""};
-
-  // Cierre de negocio → Baja cliente > Cierre de negocio
-  if ((c.includes("cierre")||c.includes("cierra"))&&(c.includes("negocio")||c.includes("empresa"))||c.includes("traspaso")||c.includes("liquidar la empresa")) return {cat:"Baja cliente",sub:"Cierre de negocio",subsub:""};
-
-  // Sin interes → Baja cliente > Sin interes
-  if (c.includes("sin interés")||c.includes("sin interes")||c.includes("no quiere")||c.includes("no le interesa")||c.includes("no desea continuar")||c.includes("no quiso nunca")||c.includes("no firmará nada")||c.includes("no firmara nada")) return {cat:"Baja cliente",sub:"Sin interes",subsub:""};
-
-  // Imposibilidad personal → Baja cliente > Imposibilidad personal
-  if (c.includes("imposibilidad")||c.includes("motivos personales")||c.includes("problemas de salud")||c.includes("situación familiar")||c.includes("no se encuentra en españa")||c.includes("no puede gestionar")) return {cat:"Baja cliente",sub:"Imposibilidad personal",subsub:""};
-
-  // Baja general → Baja cliente > Otro motivo baja
-  if (c.includes("solicitud de baja")||c.includes("solicita baja")||c.includes("baja de proyecto")||c.includes("solicita no continuidad")||(c.includes("baja")&&!c.includes("pdte"))) return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
-
-  // Desistido genérico → Baja cliente > Desistido > Sin motivo especificado
-  if (c.includes("desistido")||c.includes("desistimiento")||c.includes("desiste")||c.includes("renuncia")||ea==="desistido"||ea.includes("renuncia")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Sin motivo especificado"};
-
-  // Error tecnico → top-level
-  if (c.includes("no gestionado")||c.includes("no apto")||c.includes("bloqueada")||c.includes("error")||c.includes("bono caducado")||c.includes("duplicado")) return {cat:"Error tecnico",sub:c.includes("no apto")?"Proyecto no apto":"Error automatizacion",subsub:""};
-
+  // 1. Cambio servicio
+  if (c.includes("cambio de servicio")||c.includes("cambio servicio")||c.includes("cambio a rrss")||c.includes("cambio a web")||c.includes("cambio a fact")||c.includes("solicitud cambio de producto")||c.includes("cambio servicio / rrss"))
+    return {cat:"Baja cliente",sub:"Desistido",subsub:"Cambio servicio"};
+  // 2. Error de importe
+  if (c.includes("error en importe")||c.includes("error de importe")||c.includes("importe incorrecto"))
+    return {cat:"Baja cliente",sub:"Desistido",subsub:"Error de importe"};
+  // 3a. Incidencia logistica PC
+  if (c.includes("pc incorrecto")||c.includes("equipo incorrecto")||c.includes("pc err\u00f3neo")||c.includes("entrega de pc err"))
+    return {cat:"Incidencia logistica",sub:"PC incorrecto entregado",subsub:""};
+  if ((c.includes("direcci\u00f3n incorrecta")||c.includes("direccion incorrecta")||c.includes("domicilio incorrecto"))&&(c.includes("pc")||c.includes("env\u00edo")||c.includes("envio")))
+    return {cat:"Incidencia logistica",sub:"Envio direccion incorrecta",subsub:""};
+  if ((c.includes("seur")||c.includes("transportista"))&&(c.includes("perdi\u00f3")||c.includes("perdio")||c.includes("extraviado")))
+    return {cat:"Incidencia logistica",sub:"PC perdido en transito",subsub:""};
+  if (c.includes("mayorista")&&(c.includes("no gestion")||c.includes("no lleg")||c.includes("a tiempo")||c.includes("caduc")))
+    return {cat:"Incidencia logistica",sub:"Fallo mayorista",subsub:""};
+  if ((c.includes("no se ha enviado")||c.includes("nunca fue enviado")||c.includes("no se envio")||c.includes("no se envi\u00f3"))&&(c.includes("pc")||c.includes("ordenador")))
+    return {cat:"Incidencia logistica",sub:"Falta envio PC",subsub:""};
+  if ((c.includes("rotura de stock")||c.includes("no hab\u00eda stock")||c.includes("no habia stock"))&&(c.includes("mac")||c.includes("pc")))
+    return {cat:"Incidencia logistica",sub:"Falta envio PC",subsub:""};
+  if (c.includes("da\u00f1o pc")||c.includes("dano pc")||c.includes("pantalla rota")||c.includes("pc roto"))
+    return {cat:"Incidencia logistica",sub:"Danyo PC",subsub:""};
+  // 3b. Pago extra PC
+  if ((c.includes("pago extra")||c.includes("pago adicional"))&&(c.includes("mac")||c.includes("pc")||c.includes("ordenador")))
+    return {cat:"Baja cliente",sub:"Sin pago extra PC",subsub:""};
+  // 3c. Error plataforma Red.es
+  if ((c.includes("red.es")||c.includes("red es"))&&(c.includes("error")||c.includes("fallo")||c.includes("no perm")||c.includes("no deja")||c.includes("marca error")||c.includes("genera error")))
+    return {cat:"Error tecnico",sub:"Error plataforma Red.es",subsub:""};
+  // 3. Problemas PC
+  if (c.includes("gesti\u00f3n pc")||c.includes("gestion pc")||c.includes("macbook")||c.includes("inconveniente con pc")||c.includes("entrega del ordenador")||c.includes("rechazo de pc")||c.includes("ordenador pro")||(c.includes("stock")&&(c.includes("pc")||c.includes("ordenador"))))
+    return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Problemas entrega/stock PC"};
+  // 4. Sin pago IVA/IGIC (preciso, evitar falsos positivos con "pendiente pago igic")
+  if (c.includes("no pago igic")||c.includes("no pago iva")||c.includes("no quiere pagar")||c.includes("no desea pagar")||c.includes("no quiso pagar")||(c.includes("igic")&&(c.includes("no pag")||c.includes("no quiere")||c.includes("exenta")||c.includes("no desea")))||(c.includes("iva")&&(c.includes("no quiere pagar")||c.includes("no pago")||c.includes("no desea pagar"))))
+    return {cat:"Sin pago IVA/IGIC",sub:"",subsub:""};
+  // 5. Calidad del proyecto
+  if (c.includes("calidad")||(c.includes("contenido")&&c.includes("ia"))||c.includes("muy gen\u00e9rico")||c.includes("muy generico")||c.includes("no le gusta")||c.includes("no le gustaba")||c.includes("im\u00e1genes no adecuadas")||c.includes("imagenes no adecuadas")||c.includes("no los convenci\u00f3")||c.includes("no los convencio")||(c.includes("primera presentaci")&&c.includes("ia")))
+    return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Calidad del proyecto"};
+  // 6. Atencion recibida
+  if (c.includes("atenci\u00f3n recibida")||c.includes("atencion recibida")||c.includes("falta de comunicaci\u00f3n")||c.includes("falta de comunicacion")||c.includes("falta de transparencia")||c.includes("nadie le contact")||c.includes("nadie se ha contactado")||(c.includes("bot")&&c.includes("contact"))||c.includes("mala reputaci\u00f3n")||c.includes("mala reputacion")||c.includes("rese\u00f1as")||c.includes("desatenci\u00f3n")||c.includes("desatencion"))
+    return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Atencion recibida"};
+  // 7. No era lo prometido
+  if (c.includes("no era lo prometido")||c.includes("pensaban que era")||c.includes("se le oficializ\u00f3")||c.includes("sin su consentimiento")||c.includes("no autorizado"))
+    return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"No era lo prometido"};
+  // 8. Descontento general
+  if (c.includes("descontento")||c.includes("inconformidad")||c.includes("insatisf")||c.includes("no est\u00e1 a gusto")||c.includes("no esta a gusto")||(c.includes("no desea continuar")&&c.includes("servicio")))
+    return {cat:"Baja cliente",sub:"Descontento servicio",subsub:"Calidad del proyecto"};
+  // 9. Ghosting
+  if (/ghost/.test(c)||(c.includes("no contesta")&&!c.includes("baja"))||(c.includes("sin respuesta")&&!c.includes("baja"))||(c.includes("no da respuesta")&&!c.includes("baja")))
+    return {cat:"Ghosting",sub:"",subsub:""};
+  // 10. Baja autonomo
+  if ((c.includes("baja")&&(c.includes("aut\u00f3nomo")||c.includes("autonomo")))||c.includes("jubilaci\u00f3n")||c.includes("jubilacion"))
+    return {cat:"Baja cliente",sub:"Baja autonomo",subsub:""};
+  // 11. Cierre negocio
+  if (((c.includes("cierre")||c.includes("cierra"))&&(c.includes("negocio")||c.includes("empresa")))||c.includes("traspaso")||c.includes("liquidar la empresa")||c.includes("cierra el negocio"))
+    return {cat:"Baja cliente",sub:"Cierre de negocio",subsub:""};
+  // 12. Sin interes
+  if (c.includes("sin inter\u00e9s")||c.includes("sin interes")||c.includes("no quiere")||c.includes("no le interesa")||c.includes("no desea continuar")||c.includes("no quiso nunca")||c.includes("no firmar\u00e1 nada")||c.includes("no firmara nada"))
+    return {cat:"Baja cliente",sub:"Sin interes",subsub:""};
+  // 13. Imposibilidad personal
+  if (c.includes("imposibilidad")||c.includes("motivos personales")||c.includes("problemas de salud")||c.includes("situaci\u00f3n familiar")||c.includes("situacion familiar")||c.includes("no se encuentra en espa\u00f1a")||c.includes("no puede gestionar"))
+    return {cat:"Baja cliente",sub:"Imposibilidad personal",subsub:""};
+  // 14. Baja general
+  if (c.includes("solicitud de baja")||c.includes("solicita baja")||c.includes("baja de proyecto")||c.includes("solicita no continuidad")||(c.includes("baja")&&!c.includes("pdte")))
+    return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
+  // 15. Desistido genérico
+  if (c.includes("desistido")||c.includes("desistimiento")||c.includes("desiste")||c.includes("renuncia")||ea==="desistido"||ea.includes("renuncia"))
+    return {cat:"Baja cliente",sub:"Desistido",subsub:"Sin motivo especificado"};
+  // 16. ReverseETL (solo llega aqui si pipeline = CANCELADO)
+  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl"))
+    return {cat:"Error tecnico",sub:"Error automatizacion",subsub:"ReverseETL"};
+  // 17. Duplicado
+  if (c.includes("proyecto duplicado")||c.includes("duplicado"))
+    return {cat:"Error tecnico",sub:"Error automatizacion",subsub:"Duplicado"};
+  // 18. Error tecnico general
+  if (c.includes("no gestionado")||c.includes("no apto")||c.includes("bloqueada")||c.includes("error")||c.includes("bono caducado"))
+    return {cat:"Error tecnico",sub:c.includes("no apto")?"Proyecto no apto":"Error automatizacion",subsub:""};
+  // 19. Fallback
   return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
 }
 
 function classifyProcess(c1, ops) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
-  if (c.includes("en producci\u00f3n")||c.includes("en produccion")||c.includes("en prod")||(c.includes("gesti\u00f3n")&&c.includes("producci\u00f3n"))) return "En produccion";
-  if (c.includes("pago igic")||c.includes("pago iva")||c.includes("cobro igic")) return "Pdte pago IGIC/IVA";
-  if (c.includes("rechazo brief")||c.includes("brief vacio")||c.includes("brief rechazado")) return "Rechazo brief";
-  if (c.includes("gesti\u00f3n memoria")||c.includes("gestion memoria")||c.includes("borrador")||c.includes("creaci\u00f3n de memoria")||c.includes("actualizaci\u00f3n")) return "Gestion memoria";
+  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl")) return "Pdte firma";
+  if (c.includes("importe acuerdo no coincide")||c.includes("importe no coincide")||(c.includes("error de importe")&&(c.includes("pc")||c.includes("devoluci")))) return "Error de importe PC";
+  if (c.includes("en producci\u00f3n")||c.includes("en produccion")||c.includes("en prod")||(c.includes("gesti\u00f3n")&&c.includes("producci\u00f3n"))||c.includes("produccion entrega")) return "En produccion";
+  if (c.includes("pago igic")||c.includes("pago iva")||c.includes("cobro igic")||c.includes("pendiente igic")||c.includes("pendiente iva")) return "Pdte pago IGIC/IVA";
+  if (c.includes("rechazo brief")||c.includes("brief vacio")||c.includes("brief vacío")||c.includes("brief rechazado")) return "Rechazo brief";
+  if (c.includes("gesti\u00f3n memoria")||c.includes("gestion memoria")||c.includes("borrador")||c.includes("creaci\u00f3n de memoria")||c.includes("actualizaci\u00f3n de memoria")||c.includes("actualizacion de memoria")) return "Gestion memoria";
   if (c.includes("error")&&(c.includes("automatizacion")||c.includes("automatizaci\u00f3n"))) return "Error/Revision";
-  // Todo lo demas va a Pdte firma (ghosting es deepdive, no categoria separada)
   return "Pdte firma";
+}
+
+function classifyProcessAcuerdo(c1, ops) {
+  const c = ((c1||"")+" "+(ops||"")).toLowerCase();
+  if (c.includes("importe consumido")||c.includes("sin saldo")) return "Sin saldo disponible";
+  if (c.includes("bono no conseguido")||c.includes("sin n\u00ba de bono")||c.includes("sin numero de bono")) return "Bono no conseguido";
+  if (c.includes("cambio de servicio")||c.includes("cambio servicio")||c.includes("cambio ada")) return "Cambio servicio";
+  if (c.includes("escalado")) return "Escalado";
+  return "Sin firma beneficiario";
 }
 
 function hasGhosting(c1, ops) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
-  return c.includes("ghost")||c.includes("no contesta")||c.includes("no responde")||c.includes("sin respuesta")||c.includes("sin exito")||c.includes("sin \u00e9xito");
+  return c.includes("ghost")||c.includes("no contesta")||c.includes("no responde")||
+    c.includes("sin respuesta")||c.includes("sin exito")||c.includes("sin \u00e9xito")||
+    c.includes("no da respuesta")||c.includes("sin obtener respuesta")||
+    c.includes("no obtiene respuesta")||c.includes("no atiende")||
+    c.includes("no contesto")||c.includes("no respond\u00eda")||
+    c.includes("intentos de contacto sin")||c.includes("m\u00faltiples llamadas")||
+    c.includes("multiples llamadas")||c.includes("m\u00faltiples ocasiones sin")||
+    c.includes("no da respuestas")||c.includes("comunicaciones sin \u00e9xito");
 }
 
-function interpret(c1, ops, status, lossDetail, pr, row) {
+function interpret(c1, ops, status, lossDetail, pr, row, isReverseETLFlag, ghostFlag) {
   const parts = [];
   const ct = (c1||"").trim(), ot = (ops||"").trim();
   if (!ct && !ot) {
@@ -269,15 +424,24 @@ function interpret(c1, ops, status, lossDetail, pr, row) {
   if (status === "salvado") {
     if (ct.toLowerCase().includes("bau")) parts.push("Gestionado por flujo estandar (BAU). Memoria presentada exitosamente.");
     else parts.push("Proyecto rescatado por equipo CSAR. Memoria presentada ante Red.es.");
-    if (ot) parts.push("Gestion: " + ot.replace(/^\d{1,2}\/\d{1,2}\s*[-\u2013]?\s*/, "").split("//")[0].trim().substring(0,200));
+    if (ot) { let d = ot.replace(/^\d{1,2}\/\d{1,2}\s*[-\u2013]?\s*/,"").split("//")[0].trim().substring(0,200); if (d) parts.push("Gestion: " + d); }
   } else if (status === "perdido") {
-    parts.push("Causa: " + lossDetail.cat + (lossDetail.sub ? " > " + lossDetail.sub : "") + (lossDetail.subsub ? " > " + lossDetail.subsub : "") + ".");
+    if (lossDetail.cat === "Error tecnico" && lossDetail.subsub === "ReverseETL") {
+      parts.push("Perdido por error ReverseETL: la automatizacion modifico la fecha de presentacion. Causa tecnica, no relacionada con la voluntad del cliente.");
+    } else {
+      parts.push("Causa: " + lossDetail.cat + (lossDetail.sub ? " > " + lossDetail.sub : "") + (lossDetail.subsub ? " > " + lossDetail.subsub : "") + ".");
+    }
     if (ot) { let d = ot.replace(/^\d{1,2}\/\d{1,2}\s*[-\u2013]?\s*/,"").split("//")[0].trim(); if (d.length>180) d=d.substring(0,180)+"..."; parts.push(d); }
     else if (ct) { let d = ct.replace(/^perdid[oa]\s*[-\u2013]\s*/i,"").split("//")[0].trim(); if (d.length>180) d=d.substring(0,180)+"..."; parts.push(d); }
   } else {
-    parts.push("Situacion: " + pr + ".");
-    if (hasGhosting(c1, ops)) parts.push("!! Ghosting detectado.");
+    if (isReverseETLFlag) {
+      parts.push("En recuperacion activa \u2014 error ReverseETL del 13/03. Equipo gestiona firma antes de vencimiento.");
+    } else {
+      parts.push("Situacion: " + pr + ".");
+    }
+    if (ghostFlag) parts.push("!! GHOSTING: cliente sin respuesta a comunicaciones. Escalado urgente a CS owner.");
     if (ot) { let d = ot.replace(/^\d{1,2}\/\d{1,2}\s*[-\u2013]?\s*/,"").trim(); if (d.length>200) d=d.substring(0,200)+"..."; parts.push("Ultima gestion: " + d); }
+    else if (ct && !isReverseETLFlag) { let d = ct.replace(/^en (proceso|gesti\u00f3n)[-\u2013\s]*/i,"").trim(); if (d.length>150) d=d.substring(0,150)+"..."; if(d) parts.push(d); }
   }
   return parts.join(" ");
 }
@@ -344,10 +508,11 @@ function MetricBox({ label, value, sub, color, icon, onClick, active }) {
 
 function ProjectRow({ r, onClick }) {
   const conf = STATUS_COLORS[r._status];
-  const client = (r["Project name"]||"").replace(/^KD-\w+:\s*/,"").trim();
+  const client = (r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"").trim();
   const days = daysUntil(r._dateField);
   const urgent = days >= 0 && days <= 3 && r._status==="en_proceso";
   const ghost = r._status==="en_proceso" && r._hasGhosting;
+  const etl = r._isReverseETL && r._status==="en_proceso";
   return <div onClick={onClick} style={{
     display:"grid", gridTemplateColumns:"36px 1fr 72px 80px 130px 36px",
     alignItems:"center", gap:10, padding:"11px 14px",
@@ -359,7 +524,7 @@ function ProjectRow({ r, onClick }) {
     <div style={{width:32,height:32,borderRadius:8,background:conf.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:conf.color,fontWeight:700}}>{conf.icon}</div>
     <div style={{minWidth:0}}>
       <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-        {client} {ghost && <span style={{fontSize:9,color:"#9B59B6",fontWeight:700}}>GHOSTING</span>}
+        {client} {ghost && <span style={{fontSize:9,color:"#9B59B6",fontWeight:700}}>GHOSTING</span>}{etl && <span style={{fontSize:9,color:"#F39C12",fontWeight:700,marginLeft:3}}>ETL</span>}
       </div>
       <div style={{fontSize:10,opacity:0.28,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontFamily:"'JetBrains Mono',monospace"}}>{r._interpretation.substring(0,75)}{r._interpretation.length>75?"...":""}</div>
     </div>
@@ -382,14 +547,14 @@ function ProjectRow({ r, onClick }) {
 function DetailPanel({ r, onClose }) {
   if (!r) return null;
   const conf = STATUS_COLORS[r._status];
-  const client = (r["Project name"]||"").replace(/^KD-\w+:\s*/,"").trim();
+  const client = (r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"").trim();
   const days = daysUntil(r._dateField);
   return <div style={{position:"fixed",top:0,right:0,bottom:0,width:Math.min(500,window.innerWidth-40),background:"#101118",borderLeft:"1px solid rgba(255,255,255,0.08)",zIndex:1000,padding:28,overflowY:"auto",boxShadow:"-20px 0 60px rgba(0,0,0,0.6)",animation:"slideIn 0.25s ease-out"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
       <div>
         <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",opacity:0.3,fontFamily:"'JetBrains Mono',monospace",marginBottom:6}}>Detalle del Proyecto</div>
         <div style={{fontSize:20,fontWeight:700}}>{client}</div>
-        <div style={{fontSize:11,opacity:0.35,marginTop:3,fontFamily:"'JetBrains Mono',monospace"}}>{r["Project name"]}</div>
+        <div style={{fontSize:11,opacity:0.35,marginTop:3,fontFamily:"'JetBrains Mono',monospace"}}>{r._projectName||r["Project name"]}</div>
       </div>
       <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",color:"#fff",width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:16}}>{"\u00d7"}</button>
     </div>
@@ -410,7 +575,7 @@ function DetailPanel({ r, onClose }) {
       </div>
       <div style={{background:"rgba(255,255,255,0.03)",borderRadius:10,padding:14}}>
         <div style={{fontSize:9,opacity:0.4,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace",marginBottom:4}}>Pipeline Stage</div>
-        <div style={{fontSize:13,fontWeight:600,color:r._isPipelineCancelled?"#E84855":"#fff"}}>{r["Project pipeline stage"]||"\u2014"}</div>
+        <div style={{fontSize:13,fontWeight:600,color:r._isPipelineCancelled?"#E84855":"#fff"}}>{r._pipeline||r["Project pipeline stage"]||"\u2014"}</div>
       </div>
     </div>
     {r._status==="perdido" && <div style={{background:"#E8485510",border:"1px solid #E8485520",borderRadius:10,padding:14,marginBottom:14}}>
@@ -428,23 +593,32 @@ function DetailPanel({ r, onClose }) {
       <div style={{fontSize:9,opacity:0.4,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace",marginBottom:6}}>Interpretacion CSAR</div>
       <div style={{fontSize:13,lineHeight:1.6,color:"rgba(255,255,255,0.75)"}}>{r._interpretation}</div>
     </div>
-    <div style={{marginBottom:12}}>
-      <div style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>Comentario Memoria</div>
-      <div style={{fontSize:12,padding:12,background:"rgba(255,255,255,0.02)",borderRadius:8,lineHeight:1.5,whiteSpace:"pre-wrap",opacity:0.45,maxHeight:120,overflowY:"auto"}}>{r._commentField||"\u2014"}</div>
-    </div>
-    <div style={{marginBottom:12}}>
-      <div style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>Comentario OPS</div>
-      <div style={{fontSize:12,padding:12,background:"rgba(255,255,255,0.02)",borderRadius:8,lineHeight:1.5,whiteSpace:"pre-wrap",opacity:0.45,maxHeight:120,overflowY:"auto"}}>{r["Comentarios OPS"]||"\u2014"}</div>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:18,fontSize:11}}>
-      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:10}}>
-        <span style={{opacity:0.3,fontFamily:"'JetBrains Mono',monospace",fontSize:9}}>ESTADO ACUERDO</span>
-        <div style={{marginTop:3,fontWeight:600}}>{r["Estado Acuerdo"]||"\u2014"}</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"8px 10px"}}>
+        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>ACUERDO</span>
+        <div style={{marginTop:3,fontWeight:700,fontSize:13}}>{r._estadoAcuerdo||"\u2014"}</div>
       </div>
-      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:10}}>
-        <span style={{opacity:0.3,fontFamily:"'JetBrains Mono',monospace",fontSize:9}}>ESTADO MEMORIA</span>
-        <div style={{marginTop:3,fontWeight:600}}>{r._estadoMem||"\u2014"}</div>
+      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"8px 10px"}}>
+        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>{r._isAcuerdo?"ESTADO SUBV.":"ESTADO MEM."}</span>
+        <div style={{marginTop:3,fontWeight:600,fontSize:12}}>{r._estadoMem||"\u2014"}</div>
       </div>
+    </div>
+    <div style={{background:"rgba(255,255,255,0.03)",borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace",marginBottom:10}}>Historial de Gestion</div>
+      {r._commentField && (
+        <div style={{marginBottom:10}}>
+          <div style={{display:"inline-block",fontSize:9,padding:"2px 6px",borderRadius:4,background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>MEM</div>
+          <div style={{fontSize:12,lineHeight:1.5,whiteSpace:"pre-wrap",opacity:0.5,maxHeight:90,overflowY:"auto"}}>{r._commentField}</div>
+        </div>
+      )}
+      {r._commentField && r._opsComment && <div style={{height:1,background:"rgba(255,255,255,0.06)",marginBottom:10}} />}
+      {r._opsComment && (
+        <div>
+          <div style={{display:"inline-block",fontSize:9,padding:"2px 6px",borderRadius:4,background:"rgba(249,160,63,0.12)",color:"#F9A03F",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>OPS</div>
+          <div style={{fontSize:12,lineHeight:1.5,whiteSpace:"pre-wrap",opacity:0.6,maxHeight:120,overflowY:"auto"}}>{r._opsComment}</div>
+        </div>
+      )}
+      {!r._commentField && !r._opsComment && <div style={{opacity:0.2,fontSize:11}}>Sin comentarios registrados</div>}
     </div>
     <a href={`${HUBSPOT_BASE}${r["ID de registro"]}`} target="_blank" rel="noopener noreferrer"
       style={{display:"block",textAlign:"center",padding:"13px 24px",background:"linear-gradient(135deg,#F9A03F,#E84855)",color:"#fff",borderRadius:10,textDecoration:"none",fontWeight:700,fontSize:14,transition:"opacity 0.2s"}}
@@ -503,12 +677,17 @@ function UpcomingChart({ items, onSelectProject }) {
   const days = Array.from({length:totalDays}, (_,i) => {
     const date = new Date(TODAY); date.setDate(date.getDate()+i);
     const projects = filtered.filter(r=>daysUntil(r._dateField)===i);
+    const dow = date.getDay();
     return {offset:i, day:date.getDate(), weekday:date.toLocaleDateString("es-ES",{weekday:"short"}), projects,
+      isToday:i===0, isWeekend:dow===0||dow===6,
       saved:projects.filter(r=>r._status==="salvado").length,
       lost:projects.filter(r=>r._status==="perdido").length,
       proc:projects.filter(r=>r._status==="en_proceso").length};
   });
   const maxCount = Math.max(...days.map(d=>d.projects.length), 1);
+  const avgCount = totalDays > 0 ? filtered.length / totalDays : 0;
+  const MAX_BAR_PX = 155;
+  const avgH = maxCount > 0 ? Math.round((avgCount/maxCount)*MAX_BAR_PX) : 0;
   const selData = selectedDay!==null ? days[selectedDay] : null;
 
   return (
@@ -529,17 +708,21 @@ function UpcomingChart({ items, onSelectProject }) {
           </label>
         </div>
       </div>
-      <div style={{display:"flex",alignItems:"flex-end",gap:3,height:130,marginBottom:6,paddingBottom:4}}>
+      <div style={{position:"relative",display:"flex",alignItems:"flex-end",gap:3,height:180,marginBottom:6,paddingBottom:4}}>
+        {avgH > 0 && <div style={{position:"absolute",bottom:`calc(${avgH}px + 4px)`,left:0,right:0,height:1,borderTop:"1px dashed rgba(255,255,255,0.15)",pointerEvents:"none",zIndex:1}}>
+          <span style={{position:"absolute",right:0,top:-10,fontSize:8,opacity:0.3,fontFamily:"'JetBrains Mono',monospace"}}>media</span>
+        </div>}
         {days.map((d,i) => {
-          const h = d.projects.length===0 ? 6 : Math.max((d.projects.length/maxCount)*100, 10);
+          const barPx = d.projects.length===0 ? 0 : Math.max(Math.round((d.projects.length/maxCount)*MAX_BAR_PX), 4);
           const isSel = selectedDay===i;
           return (
             <div key={i} onClick={()=>setSelectedDay(isSel?null:i)}
-              style={{display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",flex:1,minWidth:22,userSelect:"none"}}>
-              {d.projects.length>0 && <div style={{fontSize:9,fontWeight:700,color:isSel?"#F9A03F":"rgba(255,255,255,0.45)",marginBottom:3}}>{d.projects.length}</div>}
-              <div style={{width:"100%",height:`${h}%`,borderRadius:"3px 3px 0 0",
-                background:isSel?"#F9A03F":d.projects.length===0?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.1)",
-                border:isSel?"1px solid #F9A03F60":"none",transition:"all 0.2s",overflow:"hidden",
+              style={{display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",flex:1,minWidth:18,userSelect:"none",position:"relative"}}>
+              {d.projects.length>0 && <div style={{fontSize:9,fontWeight:700,color:isSel?"#F9A03F":d.isToday?"#2ECC71":"rgba(255,255,255,0.45)",marginBottom:3}}>{d.projects.length}</div>}
+              <div style={{width:"100%",height:barPx,borderRadius:"3px 3px 0 0",
+                background:isSel?"#F9A03F":d.isToday?"rgba(46,204,113,0.35)":d.isWeekend?"rgba(255,255,255,0.05)":d.projects.length===0?"rgba(255,255,255,0.03)":"rgba(255,255,255,0.1)",
+                border:isSel?"1px solid #F9A03F60":d.isToday?"1px solid rgba(46,204,113,0.5)":"none",
+                transition:"all 0.2s",overflow:"hidden",
                 display:"flex",flexDirection:"column",justifyContent:"flex-start"}}>
                 {d.projects.length>0&&!isSel&&<>
                   {d.saved>0&&<div style={{flex:d.saved,background:"#2ECC71",minHeight:3}} />}
@@ -547,8 +730,8 @@ function UpcomingChart({ items, onSelectProject }) {
                   {d.lost>0&&<div style={{flex:d.lost,background:"#E84855",minHeight:3}} />}
                 </>}
               </div>
-              <div style={{fontSize:8,fontFamily:"'JetBrains Mono',monospace",opacity:isSel?1:0.3,marginTop:4,textAlign:"center",lineHeight:1.2}}>
-                <div style={{fontWeight:isSel?700:400}}>{d.day}</div>
+              <div style={{fontSize:d.isToday?9:8,fontFamily:"'JetBrains Mono',monospace",opacity:isSel?1:d.isToday?0.8:d.isWeekend?0.2:0.3,marginTop:4,textAlign:"center",lineHeight:1.2}}>
+                <div style={{fontWeight:d.isToday||isSel?700:400,color:d.isToday&&!isSel?"#2ECC71":"inherit"}}>{d.isToday?"HOY":d.day}</div>
                 <div style={{fontSize:7,textTransform:"uppercase"}}>{d.weekday}</div>
               </div>
             </div>
@@ -612,7 +795,7 @@ function LossHierarchy({ data, onSelect }) {
   const ProjectItem = ({r}) => (
     <div onClick={()=>onSelect(r)} style={{fontSize:11,padding:"4px 8px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.02)",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:0.5}}
       onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background="rgba(255,255,255,0.02)"}} onMouseLeave={e=>{e.currentTarget.style.opacity="0.5";e.currentTarget.style.background="transparent"}}>
-      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"60%"}}>{(r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</span>
+      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"60%"}}>{(r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</span>
       <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:PRODUCT_COLORS[r._product]||"#636E72"}}>{r._product}</span>
     </div>
   );
@@ -701,39 +884,54 @@ function LossHierarchy({ data, onSelect }) {
   </div>;
 }
 
-/* ========== GHOSTING DEEPDIVE ========== */
-function PdteFirmaDeepDive({ items, onSelect }) {
-  const [showGhost, setShowGhost] = useState(false);
-  const pf = items.filter(r => r._status==="en_proceso" && r._processReason==="Pdte firma");
-  const withG = pf.filter(r => r._hasGhosting);
-  const noG = pf.filter(r => !r._hasGhosting);
-  const list = showGhost ? withG : noG;
+/* ========== PDTE FIRMA DEEPDIVE ========== */
+function PdteFirmaDeepDive({ items, onSelect, csvType }) {
+  const [showGroup, setShowGroup] = useState("normal");
+  const mainReason = csvType?.isAcuerdo ? "Sin firma beneficiario" : "Pdte firma";
+  const showETL = !csvType?.isAcuerdo && !csvType?.isPC;
+  const pf = items.filter(r => r._status==="en_proceso" && r._processReason===mainReason);
+  const withETL = showETL ? pf.filter(r => r._isReverseETL) : [];
+  const withGNoETL = pf.filter(r => (showETL ? !r._isReverseETL : true) && r._hasGhosting);
+  const normal = pf.filter(r => (showETL ? !r._isReverseETL : true) && !r._hasGhosting);
+  const list = showGroup==="etl" ? withETL : showGroup==="ghost" ? withGNoETL : normal;
+  const thisWeek = pf.filter(r => {const d=daysUntil(r._dateField); return d>=0&&d<=7;}).length;
+  const title = csvType?.isAcuerdo ? "Deep-dive: Sin Firma Beneficiario" : "Deep-dive: Pdte Firma";
+  const cols = showETL ? "1fr 1fr 1fr" : "1fr 1fr";
 
   return (
     <div style={{background:"rgba(249,160,63,0.04)",border:"1px solid rgba(249,160,63,0.1)",borderRadius:14,padding:22}}>
-      <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.4,fontFamily:"'JetBrains Mono',monospace",marginBottom:4,color:"#F9A03F"}}>Deep-dive: Pdte Firma</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.4,fontFamily:"'JetBrains Mono',monospace",color:"#F9A03F"}}>{title}</div>
+        {thisWeek>0&&<div style={{fontSize:9,padding:"2px 8px",borderRadius:5,background:"rgba(232,72,85,0.15)",color:"#E84855",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>Vencen esta semana: {thisWeek}</div>}
+      </div>
       <div style={{fontSize:11,opacity:0.35,marginBottom:16}}>Porque estan pendientes de firma</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-        <div onClick={()=>setShowGhost(false)} style={{background:!showGhost?"rgba(249,160,63,0.12)":"rgba(255,255,255,0.03)",border:!showGhost?"1px solid rgba(249,160,63,0.3)":"1px solid rgba(255,255,255,0.04)",borderRadius:10,padding:14,cursor:"pointer",transition:"all 0.2s"}}>
-          <div style={{fontSize:22,fontWeight:800,color:"#F9A03F"}}>{noG.length}</div>
-          <div style={{fontSize:10,opacity:0.5,marginTop:2}}>Sin ghosting</div>
-          <div style={{fontSize:9,opacity:0.3,marginTop:2}}>Gestion activa con cliente</div>
+      <div style={{display:"grid",gridTemplateColumns:cols,gap:8,marginBottom:14}}>
+        <div onClick={()=>setShowGroup("normal")} style={{background:showGroup==="normal"?"rgba(249,160,63,0.12)":"rgba(255,255,255,0.03)",border:showGroup==="normal"?"1px solid rgba(249,160,63,0.3)":"1px solid rgba(255,255,255,0.04)",borderRadius:10,padding:12,cursor:"pointer",transition:"all 0.2s"}}>
+          <div style={{fontSize:20,fontWeight:800,color:"#F9A03F"}}>{normal.length}</div>
+          <div style={{fontSize:10,opacity:0.5,marginTop:2}}>Sin flags</div>
+          <div style={{fontSize:9,opacity:0.3,marginTop:1}}>Gestion activa</div>
         </div>
-        <div onClick={()=>setShowGhost(true)} style={{background:showGhost?"rgba(155,89,182,0.12)":"rgba(255,255,255,0.03)",border:showGhost?"1px solid rgba(155,89,182,0.3)":"1px solid rgba(255,255,255,0.04)",borderRadius:10,padding:14,cursor:"pointer",transition:"all 0.2s"}}>
-          <div style={{fontSize:22,fontWeight:800,color:"#9B59B6"}}>{withG.length}</div>
+        <div onClick={()=>setShowGroup("ghost")} style={{background:showGroup==="ghost"?"rgba(155,89,182,0.12)":"rgba(255,255,255,0.03)",border:showGroup==="ghost"?"1px solid rgba(155,89,182,0.3)":"1px solid rgba(255,255,255,0.04)",borderRadius:10,padding:12,cursor:"pointer",transition:"all 0.2s"}}>
+          <div style={{fontSize:20,fontWeight:800,color:"#9B59B6"}}>{withGNoETL.length}</div>
           <div style={{fontSize:10,opacity:0.5,marginTop:2}}>Con Ghosting</div>
-          <div style={{fontSize:9,opacity:0.3,marginTop:2}}>Cliente no responde</div>
+          <div style={{fontSize:9,opacity:0.3,marginTop:1}}>Sin respuesta</div>
         </div>
+        {showETL && <div onClick={()=>setShowGroup("etl")} style={{background:showGroup==="etl"?"rgba(243,156,18,0.12)":"rgba(255,255,255,0.03)",border:showGroup==="etl"?"1px solid rgba(243,156,18,0.3)":"1px solid rgba(255,255,255,0.04)",borderRadius:10,padding:12,cursor:"pointer",transition:"all 0.2s"}}>
+          <div style={{fontSize:20,fontWeight:800,color:"#F39C12"}}>{withETL.length}</div>
+          <div style={{fontSize:10,opacity:0.5,marginTop:2}}>ReverseETL</div>
+          <div style={{fontSize:9,opacity:0.3,marginTop:1}}>Batch 13/03</div>
+        </div>}
       </div>
       <div style={{maxHeight:250,overflowY:"auto",borderRadius:8,border:"1px solid rgba(255,255,255,0.04)"}}>
         {list.map((r,i)=>(
           <div key={i} onClick={()=>onSelect(r)} style={{fontSize:11,padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.03)",display:"flex",justifyContent:"space-between",alignItems:"center"}}
             onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"50%"}}>{(r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"48%"}}>{(r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:PRODUCT_COLORS[r._product],fontFamily:"'JetBrains Mono',monospace"}}>{r._product}</span>
               <span style={{fontSize:9,opacity:0.3,fontFamily:"'JetBrains Mono',monospace"}}>{r._dateField.slice(5)}</span>
               {r._hasGhosting && <span style={{fontSize:8,color:"#9B59B6",fontWeight:700}}>GHOST</span>}
+              {showETL && r._isReverseETL && <span style={{fontSize:8,color:"#F39C12",fontWeight:700}}>ETL</span>}
             </div>
           </div>
         ))}
@@ -850,7 +1048,7 @@ function CSARDashboard() {
   const handleFile = useCallback(file => {
     const reader = new FileReader();
     reader.onload = e => {
-      try { const {headers,rows}=parseCSV(e.target.result); const ct=detectCSVType(headers,rows); setCsvType(ct); setRawData({rows,isM2:ct.isM2}); }
+      try { const {headers,rows}=parseCSV(e.target.result); const ct=detectCSVType(headers,rows); setCsvType(ct); setRawData({rows,isM2:ct.isM2,isAcuerdo:ct.isAcuerdo||false,isPC:ct.isPC||false}); }
       catch(err) { alert("Error: "+err.message); }
     };
     reader.readAsText(file,"UTF-8");
@@ -858,24 +1056,32 @@ function CSARDashboard() {
 
   const enriched = useMemo(() => {
     if (!rawData) return [];
-    const {rows, isM2} = rawData;
+    const {rows, isM2, isAcuerdo, isPC} = rawData;
     return rows.map(row => {
-      const status = classifyStatus(row, isM2);
-      const product = extractProduct(row["Project name"]||"");
-      const c1 = getComment(row, isM2);
-      const ops = (row["Comentarios OPS"]||"").trim();
-      const ld = status==="perdido"?classifyLossDetailed(c1,ops,row):{cat:"",sub:"",subsub:""};
-      const pr = status==="en_proceso"?classifyProcess(c1,ops):"";
-      const dateField = getDateCol(row, isM2);
+      const projectName = getField(row, "Project name", "Nombre PC");
+      const status = classifyStatus(row, isM2, isAcuerdo);
+      const product = extractProduct(projectName);
+      const c1 = getComment(row, isM2, isAcuerdo);
+      const ops = getField(row, "Comentarios OPS");
+      const ld = status==="perdido"?classifyLossDetailed(c1,ops,row,isAcuerdo):{cat:"",sub:"",subsub:""};
+      const pr = status==="en_proceso"?(isAcuerdo?classifyProcessAcuerdo(c1,ops):classifyProcess(c1,ops)):"";
+      const dateField = getDateCol(row, isM2, isAcuerdo);
       const ghost = hasGhosting(c1, ops);
-      const pipeline = (row["Project pipeline stage"]||"").toUpperCase().trim();
-      const isPipelineCancelled = pipeline === "CANCELADO";
+      const rawPipeline = getFieldExact(row, "Project pipeline stage") || getFieldExact(row, "PC pipeline stage");
+      const pipeline = shortVal(rawPipeline, 60).toUpperCase().trim();
+      const isPipelineCancelled = isCancelledPipeline(pipeline, isPC);
+      const isPdteDevolucion = isPC && normalizeKey(rawPipeline).includes("devolucion");
       const bajaDate = getBajaDate(row);
-      const estadoMem = getEstadoMem(row, isM2);
-      return {...row, _status:status, _product:product, _week:getWeek(dateField), _expired:isExpired(dateField),
-        _lossDetail:ld, _processReason:pr, _interpretation:interpret(c1,ops,status,ld,pr,row),
+      const estadoMem = getEstadoMem(row, isM2, isAcuerdo);
+      const hasETL = hasReverseETL(c1, ops);
+      const estadoAcuerdo = shortVal(getFieldExact(row, "Estado Acuerdo"), 50);
+      const isETLActive = hasETL && status === "en_proceso";
+      return {...row, _projectName:projectName, _status:status, _product:product, _week:getWeek(dateField), _expired:isExpired(dateField),
+        _lossDetail:ld, _processReason:pr, _interpretation:interpret(c1,ops,status,ld,pr,row,isETLActive,ghost),
         _managed:!!c1.trim()||!!ops.trim(), _dateField:dateField, _isPipelineCancelled:isPipelineCancelled,
-        _hasGhosting:ghost, _hasBajaDate:!!bajaDate, _commentField:c1, _estadoMem:estadoMem};
+        _hasGhosting:ghost, _hasBajaDate:!!bajaDate, _commentField:c1, _estadoMem:estadoMem,
+        _isReverseETL:hasETL, _opsComment:ops, _estadoAcuerdo:estadoAcuerdo, _pipeline:pipeline, _isAcuerdo:isAcuerdo,
+        _isPdteDevolucion:isPdteDevolucion};
     });
   },[rawData]);
 
@@ -895,11 +1101,11 @@ function CSARDashboard() {
   const stats = useMemo(() => {
     const t=pf.length, s=pf.filter(r=>r._status==="salvado").length, l=pf.filter(r=>r._status==="perdido").length, p=pf.filter(r=>r._status==="en_proceso").length;
     const m=pf.filter(r=>r._managed).length;
-    const expNS=pf.filter(r=>r._expired&&r._status!=="salvado"&&!r._isPipelineCancelled).length;
     const lostWithBaja=pf.filter(r=>r._status==="perdido"&&r._hasBajaDate).length;
+    const pdteDevolucion=pf.filter(r=>r._isPdteDevolucion).length;
     const pr={};
     pf.forEach(r=>{if(r._status==="en_proceso") pr[r._processReason]=(pr[r._processReason]||0)+1;});
-    return {total:t,saved:s,lost:l,inProcess:p,managed:m,expiredNotSaved:expNS,lostWithBaja,processReasons:pr};
+    return {total:t,saved:s,lost:l,inProcess:p,managed:m,lostWithBaja,pdteDevolucion,processReasons:pr};
   },[pf]);
 
   const tableData = useMemo(() => {
@@ -907,7 +1113,7 @@ function CSARDashboard() {
     if (statusFilter) items=items.filter(r=>r._status===statusFilter);
     if (searchTerm) {
       const t=searchTerm.toLowerCase();
-      items=items.filter(r=>(r["Project name"]||"").toLowerCase().includes(t)||(r._interpretation||"").toLowerCase().includes(t)||(r["Comentarios OPS"]||"").toLowerCase().includes(t)||(r._commentField||"").toLowerCase().includes(t)||(r["ID de registro"]||"").includes(t));
+      items=items.filter(r=>(r._projectName||r["Project name"]||"").toLowerCase().includes(t)||(r._interpretation||"").toLowerCase().includes(t)||(r["Comentarios OPS"]||"").toLowerCase().includes(t)||(r._commentField||"").toLowerCase().includes(t)||(r["ID de registro"]||"").includes(t));
     }
     return items;
   },[pf,statusFilter,searchTerm]);
@@ -928,7 +1134,7 @@ function CSARDashboard() {
           onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.background="rgba(255,255,255,0.01)"}}>
           <div style={{fontSize:36,marginBottom:12}}>{"\uD83D\uDCC4"}</div>
           <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Arrastra tu CSV aqui o haz clic</div>
-          <div style={{fontSize:11,opacity:0.3,fontFamily:"'JetBrains Mono',monospace"}}>Mem 1 MKT {"\u00b7"} Mem 2 MKT {"\u00b7"} Mem 1 PC {"\u00b7"} Mem 2 PC</div>
+          <div style={{fontSize:11,opacity:0.3,fontFamily:"'JetBrains Mono',monospace"}}>Mem 1 MKT {"\u00b7"} Mem 2 MKT {"\u00b7"} Mem 1 PC {"\u00b7"} Mem 2 PC {"\u00b7"} Acuerdos</div>
         </div>
         <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])} />
       </div>
@@ -972,7 +1178,7 @@ function CSARDashboard() {
         <div style={{fontSize:28}}>{"\uD83C\uDFAF"}</div>
         <div style={{flex:1}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:3}}>Objetivo CSAR</div>
-          <div style={{fontSize:12,opacity:0.5,lineHeight:1.5}}>Revisar 1 a 1 cada proyecto con memoria proxima a caducar, detectar su estado real, gestionar su rescate y presentar la memoria antes del vencimiento.</div>
+          <div style={{fontSize:12,opacity:0.5,lineHeight:1.5}}>{csvType?.isAcuerdo?"Gestionar la oficializacion de acuerdos antes del vencimiento del bono. El objetivo es que cada acuerdo quede firmado y oficializado a tiempo.":"Revisar 1 a 1 cada proyecto con memoria proxima a caducar, detectar su estado real, gestionar su rescate y presentar la memoria antes del vencimiento."}</div>
         </div>
         <div style={{textAlign:"right",flexShrink:0}}>
           <div style={{fontSize:28,fontWeight:800,color:"#2ECC71",fontFamily:"'Outfit',sans-serif"}}>{saveRate}%</div>
@@ -985,7 +1191,6 @@ function CSARDashboard() {
         <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.3,fontFamily:"'JetBrains Mono',monospace",marginRight:4}}>Producto:</span>
         <button onClick={()=>setProductFilter(null)} style={{background:!productFilter?"rgba(255,255,255,0.08)":"rgba(255,255,255,0.02)",border:!productFilter?"1px solid rgba(255,255,255,0.2)":"1px solid rgba(255,255,255,0.04)",color:!productFilter?"#fff":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>Todos</button>
         <button onClick={()=>setProductFilter(productFilter==="__SERV__"?null:"__SERV__")} style={{background:productFilter==="__SERV__"?"rgba(123,104,238,0.18)":"rgba(255,255,255,0.02)",border:productFilter==="__SERV__"?"1px solid rgba(123,104,238,0.5)":"1px solid rgba(255,255,255,0.06)",color:productFilter==="__SERV__"?"#a78bfa":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>WEB/RRSS/SEO ({enriched.filter(r=>SERVICE_PRODUCTS.includes(r._product)).length})</button>
-        <button onClick={()=>setProductFilter(productFilter==="__FACT__"?null:"__FACT__")} style={{background:productFilter==="__FACT__"?"rgba(52,152,219,0.18)":"rgba(255,255,255,0.02)",border:productFilter==="__FACT__"?"1px solid rgba(52,152,219,0.5)":"1px solid rgba(255,255,255,0.06)",color:productFilter==="__FACT__"?"#3498DB":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>Solo FACT ({enriched.filter(r=>r._product==="FACT").length})</button>
         <div style={{width:1,height:16,background:"rgba(255,255,255,0.08)"}} />
         {allProducts.map(p=><button key={p} onClick={()=>setProductFilter(productFilter===p?null:p)} style={{background:productFilter===p?`${PRODUCT_COLORS[p]}20`:"rgba(255,255,255,0.02)",border:productFilter===p?`1px solid ${PRODUCT_COLORS[p]}60`:"1px solid rgba(255,255,255,0.04)",color:productFilter===p?PRODUCT_COLORS[p]:"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>{p} ({enriched.filter(r=>r._product===p).length})</button>)}
       </div>
@@ -998,11 +1203,6 @@ function CSARDashboard() {
         </label>
       </div>
 
-      {/* ALERT */}
-      {stats.expiredNotSaved>0 && <div style={{background:"linear-gradient(135deg,#E8485510,#E8485505)",border:"1px solid #E8485520",borderRadius:12,padding:"13px 18px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
-        <span style={{fontSize:20}}>{"\u26A0\uFE0F"}</span>
-        <div style={{fontSize:13,lineHeight:1.5}}><span style={{fontWeight:700,color:"#E84855"}}>{stats.expiredNotSaved} proyectos</span><span style={{opacity:0.5}}> vencidos sin salvar (excl. cancelados).</span> <span style={{opacity:0.3,fontFamily:"'JetBrains Mono',monospace",fontSize:11}}>Corte: {TODAY_STR}</span></div>
-      </div>}
 
       {/* TOP METRICS */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(155px, 1fr))",gap:10,marginBottom:20}}>
@@ -1011,6 +1211,8 @@ function CSARDashboard() {
         <MetricBox label="Perdidos" value={stats.lost} icon={"\u2715"} color="#E84855" sub={`${stats.total>0?((stats.lost/stats.total)*100).toFixed(1):0}% del total`} onClick={()=>setStatusFilter(statusFilter==="perdido"?null:"perdido")} active={statusFilter==="perdido"} />
         <MetricBox label="En Proceso" value={stats.inProcess} icon={"\u27F3"} color="#F9A03F" sub="Aun rescatables" onClick={()=>setStatusFilter(statusFilter==="en_proceso"?null:"en_proceso")} active={statusFilter==="en_proceso"} />
         <MetricBox label="Con Baja Definitiva" value={stats.lostWithBaja} icon={"\u2715"} color="#C0392B" sub="Perdidos con fecha baja" />
+        {csvType?.isPC && stats.pdteDevolucion > 0 &&
+          <MetricBox label="Pdte Devoluci\u00f3n PC" value={stats.pdteDevolucion} icon={"\u21A9"} color="#E67E22" sub="Con devolucion pendiente" />}
       </div>
 
       {/* === OVERVIEW === */}
@@ -1109,7 +1311,7 @@ function CSARDashboard() {
               </div>)}
             </div>
           </div>
-          <PdteFirmaDeepDive items={pf} onSelect={setSelectedRow} />
+          <PdteFirmaDeepDive items={pf} onSelect={setSelectedRow} csvType={csvType} />
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
           {[
@@ -1124,8 +1326,12 @@ function CSARDashboard() {
             <div style={{maxHeight:200,overflowY:"auto"}}>
               {g.items.map((r,j)=><div key={j} onClick={()=>setSelectedRow(r)} style={{fontSize:11,padding:"6px 8px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.02)",display:"flex",justifyContent:"space-between",alignItems:"center"}}
                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <span style={{opacity:0.6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"55%"}}>{(r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</span>
-                <span style={{fontFamily:"'JetBrains Mono',monospace",opacity:0.3,fontSize:10}}>{r._processReason}{r._hasGhosting?" \u00b7 GHOST":""}</span>
+                <span style={{opacity:0.6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"55%"}}>{(r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</span>
+                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",opacity:0.3,fontSize:10}}>{r._processReason}</span>
+                  {r._hasGhosting && <span style={{fontSize:8,color:"#9B59B6",fontWeight:700}}>GHOST</span>}
+                  {r._isReverseETL && <span style={{fontSize:8,color:"#F39C12",fontWeight:700}}>ETL</span>}
+                </div>
               </div>)}
             </div>
           </div>)}
