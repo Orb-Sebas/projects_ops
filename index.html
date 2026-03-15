@@ -145,7 +145,7 @@ function parseCSV(text) {
   const lines = []; let cur = "", inQ = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === '"') { if (inQ && text[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+    if (ch === '"') { if (inQ && text[i+1] === '"') { cur += '""'; i++; } else { inQ = !inQ; cur += '"'; } }
     else if ((ch === "\n" || ch === "\r") && !inQ) { const t = cur.replace(/\r/g,'').trim(); if (t) lines.push(t); cur = ""; if (ch === "\r" && text[i+1] === "\n") i++; }
     else cur += ch;
   }
@@ -202,8 +202,8 @@ function getPresCol(row, isM2, isAcuerdo) {
 function getEstadoMem(row, isM2, isAcuerdo) {
   if (isAcuerdo) return shortVal(getFieldExact(row, "Estado Subvenci\u00f3n") || getFieldExact(row, "Estado Subvencion"), 60).toUpperCase().trim();
   const v = isM2
-    ? getFieldExact(row, "Estado 2a Memoria Project (project)")
-    : getFieldExact(row, "Estado 1a Memoria Project (project)");
+    ? (getFieldExact(row, "Estado 2a Memoria Sync") || getFieldExact(row, "Estado 2a Memoria Project (project)"))
+    : (getFieldExact(row, "Estado 1a Memoria Sync") || getFieldExact(row, "Estado 1a Memoria Project (project)"));
   return shortVal(v, 60).toUpperCase().trim();
 }
 function getComment(row, isM2, isAcuerdo) {
@@ -215,7 +215,7 @@ function getBajaDate(row) {
   return getField(row, "Fecha baja definitiva - MKT", "Fecha baja definitiva");
 }
 function getPipeline(row) {
-  const v = getFieldExact(row, "Project pipeline stage") || getFieldExact(row, "PC pipeline stage");
+  const v = getField(row, "Project pipeline stage", "PC pipeline stage");
   return shortVal(v, 60).toUpperCase().trim();
 }
 
@@ -595,12 +595,12 @@ function DetailPanel({ r, onClose }) {
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
       <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"8px 10px"}}>
-        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>ACUERDO</span>
-        <div style={{marginTop:3,fontWeight:700,fontSize:13}}>{r._estadoAcuerdo||"\u2014"}</div>
+        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>{r._isAcuerdo?"ESTADO SUBV.":"ACUERDO"}</span>
+        <div style={{marginTop:3,fontWeight:700,fontSize:13}}>{r._isAcuerdo?(r._estadoMem||"\u2014"):(r._estadoAcuerdo||"\u2014")}</div>
       </div>
       <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"8px 10px"}}>
-        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>{r._isAcuerdo?"ESTADO SUBV.":"ESTADO MEM."}</span>
-        <div style={{marginTop:3,fontWeight:600,fontSize:12}}>{r._estadoMem||"\u2014"}</div>
+        <span style={{fontSize:9,opacity:0.3,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'JetBrains Mono',monospace"}}>{r._isAcuerdo?"ESTADO ACUERDO":"ESTADO MEM."}</span>
+        <div style={{marginTop:3,fontWeight:600,fontSize:12}}>{r._isAcuerdo?(r._estadoAcuerdo||"\u2014"):(r._estadoMem||"\u2014")}</div>
       </div>
     </div>
     <div style={{background:"rgba(255,255,255,0.03)",borderRadius:10,padding:14,marginBottom:14}}>
@@ -977,13 +977,22 @@ function generatePDF(csvType, stats, data) {
   y+=28;
 
   const saveRate = stats.total>0?((stats.saved/stats.total)*100).toFixed(1):0;
-  doc.setFontSize(10); doc.setTextColor(60,60,60);
-  doc.text(`Tasa Rescate: ${saveRate}% | Gestionados: ${stats.managed}/${stats.total} | Perdidos con baja: ${stats.lostWithBaja}`,M,y);
+  doc.setDrawColor(220,220,220); doc.line(M,y,W-M,y); y+=5;
+  doc.setFontSize(9); doc.setTextColor(120,120,120); doc.setFont('helvetica','italic');
+  doc.text('Tasa de Rescate',M,y); y+=5;
+  doc.setFont('helvetica','bold'); doc.setTextColor(46,204,113); doc.setFontSize(11);
+  doc.text(`${saveRate}%`,M,y);
+  doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80); doc.setFontSize(9);
+  doc.text(`  Gestionados: ${stats.managed}/${stats.total}   Perdidos con baja: ${stats.lostWithBaja}   Pdte Firma: ${stats.lostPdteFirma||0}`,M+12,y);
   y+=12;
 
   // Loss categories
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(232,72,85);
-  doc.text('Causas de Perdida',M,y); y+=7;
+  if(y>260){doc.addPage();y=M;}
+  doc.setDrawColor(220,220,220); doc.line(M,y,W-M,y); y+=6;
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(232,72,85);
+  doc.text('Causas de Perdida',M,y); y+=5;
+  doc.setFontSize(9); doc.setFont('helvetica','italic'); doc.setTextColor(140,140,140);
+  doc.text('Desglose por categoría de pérdida',M,y); y+=7;
   const lost = data.filter(r=>r._status==="perdido");
   const cats={}; lost.forEach(r=>{cats[r._lossDetail.cat]=(cats[r._lossDetail.cat]||0)+1;});
   doc.setFontSize(9);
@@ -991,39 +1000,54 @@ function generatePDF(csvType, stats, data) {
     if (y>270){doc.addPage();y=M;}
     const pct = lost.length>0?((count/lost.length)*100).toFixed(1):0;
     doc.setTextColor(80,80,80); doc.setFont('helvetica','bold');
-    doc.text(`${cat}: ${count} (${pct}%)`,M+2,y);
+    doc.text(`${cat}:`,M+2,y);
+    doc.setFont('helvetica','normal');
+    doc.text(` ${count} (${pct}%)`,M+2+doc.getTextWidth(`${cat}:`),y);
     doc.setFillColor(230,230,230); doc.rect(M+100,y-3,60,3,'F');
     doc.setFillColor(232,72,85); doc.rect(M+100,y-3,Math.max(60*(count/lost.length),1),3,'F');
     y+=6;
   });
-  y+=8;
+  y+=4;
 
   // Process
   if(y>260){doc.addPage();y=M;}
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(249,160,63);
-  doc.text('En Proceso - Desglose',M,y); y+=7;
+  doc.setDrawColor(220,220,220); doc.line(M,y,W-M,y); y+=6;
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(249,160,63);
+  doc.text('En Proceso — Desglose',M,y); y+=5;
+  doc.setFontSize(9); doc.setFont('helvetica','italic'); doc.setTextColor(140,140,140);
+  doc.text('Sub-estado de proyectos activos',M,y); y+=7;
   const proc=data.filter(r=>r._status==="en_proceso");
   const pcs={}; proc.forEach(r=>{pcs[r._processReason]=(pcs[r._processReason]||0)+1;});
   doc.setFontSize(9);
   Object.entries(pcs).sort((a,b)=>b[1]-a[1]).forEach(([r,c])=>{
     if(y>270){doc.addPage();y=M;}
-    doc.setTextColor(80,80,80); doc.text(`${r}: ${c}`,M+2,y); y+=5;
+    doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
+    doc.text(`${r}:`,M+2,y);
+    doc.setFont('helvetica','normal');
+    doc.text(` ${c}`,M+2+doc.getTextWidth(`${r}:`),y);
+    y+=5;
   });
   const pdte=proc.filter(r=>r._processReason==="Pdte firma");
   const ghost=pdte.filter(r=>r._hasGhosting);
-  if(pdte.length>0){y+=3; doc.text(`  Pdte firma con Ghosting: ${ghost.length} de ${pdte.length}`,M,y); y+=8;}
+  if(pdte.length>0){y+=3; doc.setFont('helvetica','italic'); doc.setTextColor(120,120,120); doc.text(`Pdte firma con Ghosting: ${ghost.length} de ${pdte.length}`,M+4,y); y+=8;}
 
   // Products
   if(y>260){doc.addPage();y=M;}
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(60,60,60);
-  doc.text('Desglose por Producto',M,y); y+=7;
+  doc.setDrawColor(220,220,220); doc.line(M,y,W-M,y); y+=6;
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(60,60,60);
+  doc.text('Desglose por Producto',M,y); y+=5;
+  doc.setFontSize(9); doc.setFont('helvetica','italic'); doc.setTextColor(140,140,140);
+  doc.text('Resultados agregados por solución Kit Digital',M,y); y+=7;
   const prods={};
   data.forEach(r=>{if(!prods[r._product])prods[r._product]={s:0,l:0,p:0};if(r._status==="salvado")prods[r._product].s++;else if(r._status==="perdido")prods[r._product].l++;else prods[r._product].p++;});
   doc.setFontSize(9); doc.setFont('helvetica','normal');
   Object.entries(prods).sort((a,b)=>(b[1].s+b[1].l+b[1].p)-(a[1].s+a[1].l+a[1].p)).forEach(([prod,d])=>{
     if(y>270){doc.addPage();y=M;}
-    doc.setTextColor(80,80,80);
-    doc.text(`${prod}: ${d.s+d.l+d.p} | Salvados: ${d.s} | Perdidos: ${d.l} | En Proceso: ${d.p}`,M+2,y); y+=5;
+    doc.setFont('helvetica','bold'); doc.setTextColor(60,60,60);
+    doc.text(`${prod}:`,M+2,y);
+    doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
+    doc.text(`  ${d.s+d.l+d.p} total  |  Salv: ${d.s}  |  Perd: ${d.l}  |  Proc: ${d.p}`,M+2+doc.getTextWidth(`${prod}:`),y);
+    y+=5;
   });
 
   // Footer
@@ -1067,7 +1091,7 @@ function CSARDashboard() {
       const pr = status==="en_proceso"?(isAcuerdo?classifyProcessAcuerdo(c1,ops):classifyProcess(c1,ops)):"";
       const dateField = getDateCol(row, isM2, isAcuerdo);
       const ghost = hasGhosting(c1, ops);
-      const rawPipeline = getFieldExact(row, "Project pipeline stage") || getFieldExact(row, "PC pipeline stage");
+      const rawPipeline = getField(row, "Project pipeline stage", "PC pipeline stage");
       const pipeline = shortVal(rawPipeline, 60).toUpperCase().trim();
       const isPipelineCancelled = isCancelledPipeline(pipeline, isPC);
       const isPdteDevolucion = isPC && normalizeKey(rawPipeline).includes("devolucion");
@@ -1103,9 +1127,10 @@ function CSARDashboard() {
     const m=pf.filter(r=>r._managed).length;
     const lostWithBaja=pf.filter(r=>r._status==="perdido"&&r._hasBajaDate).length;
     const pdteDevolucion=pf.filter(r=>r._isPdteDevolucion).length;
+    const lostPdteFirma=pf.filter(r=>r._status==="perdido"&&r._estadoMem&&r._estadoMem.includes("PDTE FIRMA")).length;
     const pr={};
     pf.forEach(r=>{if(r._status==="en_proceso") pr[r._processReason]=(pr[r._processReason]||0)+1;});
-    return {total:t,saved:s,lost:l,inProcess:p,managed:m,lostWithBaja,pdteDevolucion,processReasons:pr};
+    return {total:t,saved:s,lost:l,inProcess:p,managed:m,lostWithBaja,pdteDevolucion,lostPdteFirma,processReasons:pr};
   },[pf]);
 
   const tableData = useMemo(() => {
@@ -1291,6 +1316,13 @@ function CSARDashboard() {
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <div style={{fontSize:28,fontWeight:800,color:"#C0392B",fontFamily:"'Outfit',sans-serif"}}>{stats.lostWithBaja}</div>
                 <div style={{fontSize:11,opacity:0.4,lineHeight:1.4}}>de {stats.lost} perdidos tienen fecha de baja definitiva registrada</div>
+              </div>
+            </div>
+            <div style={{marginTop:10,padding:14,background:"rgba(255,255,255,0.02)",borderRadius:10}}>
+              <div style={{fontSize:10,fontWeight:600,opacity:0.4,marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>PERDIDOS CON ESTADO PDTE FIRMA</div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{fontSize:28,fontWeight:800,color:"#9B59B6",fontFamily:"'Outfit',sans-serif"}}>{stats.lostPdteFirma}</div>
+                <div style={{fontSize:11,opacity:0.4,lineHeight:1.4}}>de {stats.lost} perdidos tenían estado "PDTE FIRMA MEM. 1"</div>
               </div>
             </div>
           </div>
