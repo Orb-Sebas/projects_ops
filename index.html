@@ -24,6 +24,7 @@
 const { useState, useMemo, useCallback, useRef } = React;
 
 const HUBSPOT_BASE = "https://app-eu1.hubspot.com/contacts/25808060/record/2-110970937/";
+const HUBSPOT_BASE_PC = "https://app-eu1.hubspot.com/contacts/25808060/record/2-132008325/";
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
 const TODAY_STR = TODAY.toLocaleDateString("es-ES",{day:"numeric",month:"long",year:"numeric"});
 const MONTH_NAME = TODAY.toLocaleDateString("es-ES",{month:"long"});
@@ -55,19 +56,20 @@ const LOSS_TREE = {
         }
       },
       "Desistido":{
-        desc:"Cliente desistio formalmente del acuerdo ante Red.es",
+        desc:"Cliente desistio formalmente o solicito baja",
         subs:{
           "Cambio servicio":"Cambio a otro producto KD (WEB->RRSS, etc.)",
           "Error de importe":"Acuerdo con importe incorrecto",
+          "Baja autonomo":"Se dio de baja como autonomo o jubilacion",
+          "Bono renunciado":"Bono renunciado por el cliente o indicado por otra ADA",
           "Sin motivo especificado":"Desistimiento sin razon declarada",
         }
       },
-      "Baja autonomo":{desc:"Se dio de baja como autonomo o jubilacion"},
+      "Cambio ADA":{desc:"Cliente cambio a otro Agente Digitalizador (ADA)"},
       "Cierre de negocio":{desc:"Cerro o traspaso el negocio"},
       "Sin interes":{desc:"No quiere continuar con el KD"},
       "Imposibilidad personal":{desc:"Motivos personales, salud, cambio de pais"},
       "Sin pago extra PC":{desc:"Cliente no realizo el pago adicional requerido para Mac/PC premium"},
-      "Otro motivo baja":{desc:"Baja sin subcategoria especifica"},
     }
   },
   "Ghosting":{desc:"Cliente dejo de responder a toda comunicacion",color:"#9B59B6",subs:{}},
@@ -96,16 +98,27 @@ const LOSS_TREE = {
 
 const PROCESS_CATEGORIES = {
   "Pdte firma":"Memoria lista, pendiente firma del cliente",
+  "Pdte firma > Ghosting":"Cliente en pdte firma sin respuesta a comunicaciones",
+  "Pdte firma > Asistencia firma":"Cliente necesita asistencia para firmar (@clave, certificado digital)",
+  "Pdte firma > Inconformidad proyecto":"Cliente no firma por descontento con calidad/formato del proyecto",
+  "Pdte firma > En produccion":"Proyecto en produccion, pendiente firma",
+  "Pdte firma > Gestion firma":"Gestion general de firma, pendiente seguimiento",
+  "Pdte firma > Incidencia PC":"Incidencia con PC que bloquea la firma del proyecto",
   "Pdte pago IGIC/IVA":"Bloqueado por falta de pago de impuestos",
   "En produccion":"Proyecto aun en desarrollo o entrega",
   "Gestion memoria":"Memoria en preparacion o correccion",
   "Error/Revision":"Error tecnico, en revision por tramitacion",
   "Rechazo brief":"Brief rechazado, pendiente nueva gestion",
+  "Falta evidencias":"Faltan evidencias o documentacion para crear memoria",
+  "Incidencia logistica PC":"PC no entregado o en transito, bloquea el proceso",
+  "Ghosting":"Sin respuesta del cliente (no esta en pdte firma)",
   "Sin firma beneficiario":"Acuerdo creado, pendiente de aceptacion por el cliente",
   "Sin saldo disponible":"Importe consumido o no disponible en el bono",
   "Bono no conseguido":"Subvencion concedida pero sin numero de bono",
   "Cambio servicio":"En proceso de cambio de producto o ADA",
   "Escalado":"Caso escalado a equipo de soporte o gestion",
+  "Confirmar continuidad":"Pendiente confirmar si el proyecto continua",
+  "Sin acuerdos creados":"Falta creacion de acuerdos en el sistema",
   "Error de importe PC":"Importe del acuerdo no coincide con el PC elegido, requiere correccion",
 };
 
@@ -252,7 +265,18 @@ function classifyStatus(row, isM2, isAcuerdo) {
     const c1 = getField(row, "Comentarios Oficializaci\u00f3n", "Comentarios Oficializacion");
     const ops = getField(row, "Comentarios OPS");
     const c = (c1+" "+ops).toLowerCase();
+    const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
+    const es = getField(row, "Estado Subvención", "Estado Subvencion").toUpperCase().trim();
     if (c.startsWith("perdido") || pipeline === "CANCELADO") return "perdido";
+    if (c.startsWith("descartado") || c.includes("excluido del kit digital")) return "perdido";
+    if (/^escalado\s*-\s*(baja|subvenci[oó]n desistida|proyecto a eliminar)/i.test(c1.trim())) return "perdido";
+    if (ea === "cancelado beneficiario" || ea === "desistido") return "perdido";
+    if (es === "DESISTIDA") return "perdido";
+    // Pipeline ACUERDO VENCIDO → perdido
+    if (pipeline.includes("ACUERDO VENCIDO") || pipeline.includes("BONO CADUCADO")) return "perdido";
+    // Expired → perdido
+    const dateFieldAc = getDateCol(row, false, true);
+    if (dateFieldAc && isExpired(dateFieldAc)) return "perdido";
     return "en_proceso";
   }
   // SALVADO = UNICAMENTE si tiene fecha de presentacion valida
@@ -263,12 +287,12 @@ function classifyStatus(row, isM2, isAcuerdo) {
   const c1 = getComment(row, isM2);
   const ops = getField(row, "Comentarios OPS");
 
-  // ReverseETL con pipeline activo → en_proceso (rescatable)
-  if (hasReverseETL(c1, ops) && pipeline !== "CANCELADO") return "en_proceso";
-
   // Comentario dice perdido explicitamente
   const c = c1.toLowerCase();
   if (c.startsWith("perdido") || c.startsWith("perdida") || c === "duplicado") return "perdido";
+
+  // Proyecto duplicado → perdido
+  if (c.includes("proyecto duplicado")) return "perdido";
 
   // Estado Acuerdo desistido/renuncia/finalizado
   const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
@@ -290,15 +314,39 @@ function classifyStatus(row, isM2, isAcuerdo) {
     cFull.includes("proyecto cancelado")
   ) return "perdido";
 
+  // Pipeline ACUERDO VENCIDO Y BONO CADUCADO → perdido
+  if (pipeline.includes("ACUERDO VENCIDO") || pipeline.includes("BONO CADUCADO")) return "perdido";
+
+  // Expired (caducidad < hoy) → perdido
+  const dateField = getDateCol(row, isM2, false);
+  if (dateField && isExpired(dateField)) return "perdido";
+
+  // ReverseETL con pipeline activo → en_proceso (rescatable) — solo si no vencido
+  if (hasReverseETL(c1, ops) && pipeline !== "CANCELADO") return "en_proceso";
+
   return "en_proceso";
 }
 
 function classifyLossDetailed(c1, ops, row, isAcuerdo) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
   if (isAcuerdo) {
+    const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
+    // Error tecnico
     if (c.includes("sin saldo")||c.includes("importe consumido")) return {cat:"Error tecnico",sub:"Sin saldo disponible",subsub:""};
-    if (c.includes("cambio ada")||c.includes("cambio de servicio")||c.includes("cambio servicio")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Cambio servicio"};
-    return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
+    if (c.includes("cruce empresas")||c.includes("eliminaci")||c.includes("fecha de caducidad incorrecta")) return {cat:"Error tecnico",sub:"Error automatizacion",subsub:""};
+    if (c.includes("excluido")||c.includes("descartado")) return {cat:"Error tecnico",sub:"Proyecto no apto",subsub:""};
+    // Cambio ADA
+    if (c.includes("cambio ada")||c.includes("otra ada")||ea==="cancelado beneficiario") return {cat:"Baja cliente",sub:"Cambio ADA",subsub:""};
+    // Cambio servicio
+    if (c.includes("cambio de servicio")||c.includes("cambio servicio")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Cambio servicio"};
+    // Bono renunciado
+    if (c.includes("bono renunciado")) return {cat:"Baja cliente",sub:"Desistido",subsub:"Bono renunciado"};
+    // Subvencion desistida / no presentada
+    if (c.includes("subvenci")||c.includes("subvencion no presentada")) return {cat:"Baja cliente",sub:"Desistido",subsub:""};
+    // Ghosting
+    if (hasGhosting(c1, ops)) return {cat:"Ghosting",sub:"",subsub:""};
+    // Fallback
+    return {cat:"Baja cliente",sub:"Desistido",subsub:""};
   }
   const ea = getField(row, "Estado Acuerdo").toLowerCase().trim();
 
@@ -352,7 +400,7 @@ function classifyLossDetailed(c1, ops, row, isAcuerdo) {
     return {cat:"Ghosting",sub:"",subsub:""};
   // 10. Baja autonomo
   if ((c.includes("baja")&&(c.includes("aut\u00f3nomo")||c.includes("autonomo")))||c.includes("jubilaci\u00f3n")||c.includes("jubilacion"))
-    return {cat:"Baja cliente",sub:"Baja autonomo",subsub:""};
+    return {cat:"Baja cliente",sub:"Desistido",subsub:"Baja autonomo"};
   // 11. Cierre negocio
   if (((c.includes("cierre")||c.includes("cierra"))&&(c.includes("negocio")||c.includes("empresa")))||c.includes("traspaso")||c.includes("liquidar la empresa")||c.includes("cierra el negocio"))
     return {cat:"Baja cliente",sub:"Cierre de negocio",subsub:""};
@@ -364,13 +412,15 @@ function classifyLossDetailed(c1, ops, row, isAcuerdo) {
     return {cat:"Baja cliente",sub:"Imposibilidad personal",subsub:""};
   // 14. Baja general
   if (c.includes("solicitud de baja")||c.includes("solicita baja")||c.includes("baja de proyecto")||c.includes("solicita no continuidad")||(c.includes("baja")&&!c.includes("pdte")))
-    return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
+    return {cat:"Baja cliente",sub:"Desistido",subsub:""};
   // 15. Desistido genérico
   if (c.includes("desistido")||c.includes("desistimiento")||c.includes("desiste")||c.includes("renuncia")||ea==="desistido"||ea.includes("renuncia"))
     return {cat:"Baja cliente",sub:"Desistido",subsub:"Sin motivo especificado"};
-  // 16. ReverseETL (solo llega aqui si pipeline = CANCELADO)
-  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl"))
+  // 16. ReverseETL (solo llega aqui si pipeline = CANCELADO) — si tiene ghosting, clasificar como Ghosting
+  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl")) {
+    if (hasGhosting(c1, ops)) return {cat:"Ghosting",sub:"",subsub:""};
     return {cat:"Error tecnico",sub:"Error automatizacion",subsub:"ReverseETL"};
+  }
   // 17. Duplicado
   if (c.includes("proyecto duplicado")||c.includes("duplicado"))
     return {cat:"Error tecnico",sub:"Error automatizacion",subsub:"Duplicado"};
@@ -378,19 +428,66 @@ function classifyLossDetailed(c1, ops, row, isAcuerdo) {
   if (c.includes("no gestionado")||c.includes("no apto")||c.includes("bloqueada")||c.includes("error")||c.includes("bono caducado"))
     return {cat:"Error tecnico",sub:c.includes("no apto")?"Proyecto no apto":"Error automatizacion",subsub:""};
   // 19. Fallback
-  return {cat:"Baja cliente",sub:"Otro motivo baja",subsub:""};
+  return {cat:"Baja cliente",sub:"Desistido",subsub:""};
 }
 
-function classifyProcess(c1, ops) {
+function classifyProcess(c1, ops, row, isPC, isM2, isAcuerdo) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
-  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl")) return "Pdte firma";
+  const pipeline = getPipeline(row);
+  const estadoMem = getEstadoMem(row, isM2, isAcuerdo);
+  const isPdteFirma = estadoMem.includes("PDTE FIRMA");
+
+  // PC-specific: pipeline indica PC no entregado → categoría independiente
+  if (isPC) {
+    const plNorm = pipeline.toUpperCase();
+    if (["PEDIDO REALIZADO","EN TRÁNSITO","EN TRÁNSITO - DEVOLUCIÓN","PDTE DEVOLUCIÓN PC"].some(s=>plNorm.includes(s.toUpperCase())))
+      return "Incidencia logistica PC";
+    if (c.includes("no ha recibido")||c.includes("no recibe")||c.includes("pc no entregado")||c.includes("no se ha entregado")||c.includes("no ha llegado"))
+      return "Incidencia logistica PC";
+  }
+
+  // Categorías independientes (no son subcategoría de Pdte firma)
   if (c.includes("importe acuerdo no coincide")||c.includes("importe no coincide")||(c.includes("error de importe")&&(c.includes("pc")||c.includes("devoluci")))) return "Error de importe PC";
-  if (c.includes("en producci\u00f3n")||c.includes("en produccion")||c.includes("en prod")||(c.includes("gesti\u00f3n")&&c.includes("producci\u00f3n"))||c.includes("produccion entrega")) return "En produccion";
   if (c.includes("pago igic")||c.includes("pago iva")||c.includes("cobro igic")||c.includes("pendiente igic")||c.includes("pendiente iva")) return "Pdte pago IGIC/IVA";
   if (c.includes("rechazo brief")||c.includes("brief vacio")||c.includes("brief vacío")||c.includes("brief rechazado")) return "Rechazo brief";
-  if (c.includes("gesti\u00f3n memoria")||c.includes("gestion memoria")||c.includes("borrador")||c.includes("creaci\u00f3n de memoria")||c.includes("actualizaci\u00f3n de memoria")||c.includes("actualizacion de memoria")) return "Gestion memoria";
   if (c.includes("error")&&(c.includes("automatizacion")||c.includes("automatizaci\u00f3n"))) return "Error/Revision";
-  return "Pdte firma";
+
+  // Falta evidencias
+  if (c.includes("faltan evidencias")||c.includes("falta evidencia")||c.includes("sin evidencias")||(c.includes("no ha creado memoria")&&c.includes("faltan")))
+    return "Falta evidencias";
+
+  // En produccion: subcategoría de Pdte firma solo si estado mem es PDTE FIRMA
+  if (c.includes("en producci\u00f3n")||c.includes("en produccion")||c.includes("en prod")||(c.includes("gesti\u00f3n")&&c.includes("producci\u00f3n"))||c.includes("produccion entrega")) {
+    return isPdteFirma ? "Pdte firma > En produccion" : "En produccion";
+  }
+
+  // Gestion memoria
+  if (c.includes("gesti\u00f3n memoria")||c.includes("gestion memoria")||c.includes("borrador")||c.includes("creaci\u00f3n de memoria")||c.includes("actualizaci\u00f3n de memoria")||c.includes("actualizacion de memoria")) return "Gestion memoria";
+
+  // Subcategorías de Pdte firma: asistencia firma
+  if (c.includes("asistencia firma")||c.includes("requiere asistencia")||c.includes("no sabe firmar")||c.includes("ayuda para firmar")||c.includes("@clave")||c.includes("certificado digital")||c.includes("no puede firmar")||c.includes("error al firmar")||c.includes("problemas con firma")||c.includes("intentado firmar")||c.includes("no se lo permite")||(c.includes("ayuda para")&&c.includes("firma"))||(c.includes("avanzar con la firma"))||(c.includes("error")&&c.includes("firma")&&!c.includes("importe"))||(c.includes("le sale error")&&c.includes("firma")))
+    return "Pdte firma > Asistencia firma";
+
+  // Subcategorías de Pdte firma: inconformidad con proyecto
+  if (c.includes("no le gusta")||c.includes("formato de la propuesta")||c.includes("calidad")||c.includes("inconformidad")||c.includes("requiere cambios")||c.includes("cambio en su proyecto")||(c.includes("no quiere firmar")&&c.includes("cambio")))
+    return "Pdte firma > Inconformidad proyecto";
+
+  // Incidencia PC como subcategoría de Pdte firma
+  if (c.includes("problema con pc")||c.includes("problema pc")||c.includes("incidencia pc")||c.includes("incidencia logistica")||(c.includes("pc")&&(c.includes("no funciona")||c.includes("defectuoso")||c.includes("no enciende")||c.includes("hasta que no se resuelva"))))
+    return "Pdte firma > Incidencia PC";
+
+  // ReverseETL
+  if (c.includes("reversetl")||c.includes("reverse etl")||c.includes("reverse-etl")) {
+    if (hasGhosting(c1, ops)) return "Pdte firma > Ghosting";
+    return "Pdte firma > Gestion firma";
+  }
+
+  // Ghosting: subcategoría de Pdte firma si estado mem es PDTE FIRMA, sino independiente
+  if (hasGhosting(c1, ops)) {
+    return isPdteFirma ? "Pdte firma > Ghosting" : "Ghosting";
+  }
+
+  return "Pdte firma > Gestion firma";
 }
 
 function classifyProcessAcuerdo(c1, ops) {
@@ -398,7 +495,10 @@ function classifyProcessAcuerdo(c1, ops) {
   if (c.includes("importe consumido")||c.includes("sin saldo")) return "Sin saldo disponible";
   if (c.includes("bono no conseguido")||c.includes("sin n\u00ba de bono")||c.includes("sin numero de bono")) return "Bono no conseguido";
   if (c.includes("cambio de servicio")||c.includes("cambio servicio")||c.includes("cambio ada")) return "Cambio servicio";
+  if (c.includes("confirmar continuidad")) return "Confirmar continuidad";
+  if (c.includes("sin acuerdos creados")) return "Sin acuerdos creados";
   if (c.includes("escalado")) return "Escalado";
+  if (hasGhosting(c1, ops)) return "Ghosting";
   return "Sin firma beneficiario";
 }
 
@@ -535,7 +635,7 @@ function ProjectRow({ r, onClick }) {
     <div style={{fontSize:9,padding:"4px 6px",borderRadius:5,background:conf.bg,color:conf.color,fontWeight:700,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
       {r._status==="perdido"?(r._lossDetail.sub||r._lossDetail.cat)+(r._lossDetail.subsub?" > "+r._lossDetail.subsub:""):r._status==="en_proceso"?r._processReason:conf.label}
     </div>
-    <a href={`${HUBSPOT_BASE}${r["ID de registro"]}`} target="_blank" rel="noopener noreferrer"
+    <a href={`${r._isPC ? HUBSPOT_BASE_PC : HUBSPOT_BASE}${r["ID de registro"]}`} target="_blank" rel="noopener noreferrer"
       onClick={e=>e.stopPropagation()}
       style={{width:28,height:28,borderRadius:6,background:"rgba(255,255,255,0.04)",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.3)",textDecoration:"none",fontSize:13,transition:"all 0.2s"}}
       onMouseEnter={e=>{e.currentTarget.style.background="#F9A03F";e.currentTarget.style.color="#fff"}}
@@ -620,7 +720,7 @@ function DetailPanel({ r, onClose }) {
       )}
       {!r._commentField && !r._opsComment && <div style={{opacity:0.2,fontSize:11}}>Sin comentarios registrados</div>}
     </div>
-    <a href={`${HUBSPOT_BASE}${r["ID de registro"]}`} target="_blank" rel="noopener noreferrer"
+    <a href={`${r._isPC ? HUBSPOT_BASE_PC : HUBSPOT_BASE}${r["ID de registro"]}`} target="_blank" rel="noopener noreferrer"
       style={{display:"block",textAlign:"center",padding:"13px 24px",background:"linear-gradient(135deg,#F9A03F,#E84855)",color:"#fff",borderRadius:10,textDecoration:"none",fontWeight:700,fontSize:14,transition:"opacity 0.2s"}}
       onMouseEnter={e=>e.currentTarget.style.opacity="0.85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
       Abrir en HubSpot {"\u2197"}
@@ -844,27 +944,32 @@ function LossHierarchy({ data, onSelect }) {
                   </div>
 
                   {isSubExp && <div style={{marginLeft:16,borderLeft:`2px solid ${info.color}15`,paddingLeft:12}}>
-                    {hasSubsubs ? subsubs.map(([ssubName, ssubData]) => {
-                      const ssubKey = subKey+"/"+ssubName;
-                      const isSsubExp = expanded[ssubKey];
-                      return (
-                        <div key={ssubName} style={{marginBottom:4}}>
-                          {/* Nivel 3: Detalle */}
-                          <div onClick={()=>toggle(ssubKey)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 4px",cursor:"pointer"}}
-                            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                            <div style={{display:"flex",alignItems:"center",gap:6}}>
-                              <div style={{width:4,height:4,borderRadius:2,background:info.color,opacity:0.4}} />
-                              <span style={{fontSize:11,opacity:0.6}}>{ssubName}</span>
+                    {hasSubsubs ? <>
+                      {subsubs.map(([ssubName, ssubData]) => {
+                        const ssubKey = subKey+"/"+ssubName;
+                        const isSsubExp = expanded[ssubKey];
+                        return (
+                          <div key={ssubName} style={{marginBottom:4}}>
+                            {/* Nivel 3: Detalle */}
+                            <div onClick={()=>toggle(ssubKey)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 4px",cursor:"pointer"}}
+                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <div style={{width:4,height:4,borderRadius:2,background:info.color,opacity:0.4}} />
+                                <span style={{fontSize:11,opacity:0.6}}>{ssubName}</span>
+                              </div>
+                              <span style={{fontSize:11,fontWeight:700,color:info.color,opacity:0.7,fontFamily:"'JetBrains Mono',monospace"}}>{ssubData.count}</span>
                             </div>
-                            <span style={{fontSize:11,fontWeight:700,color:info.color,opacity:0.7,fontFamily:"'JetBrains Mono',monospace"}}>{ssubData.count}</span>
+                            {isSsubExp && <div style={{marginLeft:10,maxHeight:140,overflowY:"auto"}}>
+                              {ssubData.items.map((r,i)=><ProjectItem key={i} r={r} />)}
+                            </div>}
                           </div>
-                          {isSsubExp && <div style={{marginLeft:10,maxHeight:140,overflowY:"auto"}}>
-                            {ssubData.items.map((r,i)=><ProjectItem key={i} r={r} />)}
-                          </div>}
-                        </div>
-                      );
-                    }) : null}
-                    {/* Items sin subsub (directos del nivel 2) */}
+                        );
+                      })}
+                      {/* Items sin subsub (directos del nivel 2) */}
+                      {(()=>{const noSsub=subData.items.filter(r=>!r._lossDetail.subsub); return noSsub.length>0?<div style={{maxHeight:100,overflowY:"auto",marginTop:4}}>
+                        {noSsub.map((r,i)=><ProjectItem key={i} r={r} />)}
+                      </div>:null;})()}
+                    </> : null}
                     {!hasSubsubs && <div style={{maxHeight:150,overflowY:"auto"}}>
                       {subData.items.map((r,i)=><ProjectItem key={i} r={r} />)}
                     </div>}
@@ -873,6 +978,120 @@ function LossHierarchy({ data, onSelect }) {
               );
             }) : (
               /* Sin subs: mostrar items directamente (ej: Ghosting, Sin pago) */
+              <div style={{maxHeight:200,overflowY:"auto"}}>
+                {d.items.map((r,i)=><ProjectItem key={i} r={r} />)}
+              </div>
+            )}
+          </div>}
+        </div>
+      );
+    })}
+  </div>;
+}
+
+/* ========== PROCESS HIERARCHY (En Proceso expandable tree) ========== */
+function ProcessHierarchy({ data, onSelect }) {
+  const [expanded, setExpanded] = useState({});
+  const proc = data.filter(r => r._status === "en_proceso");
+
+  // Build two-level hierarchy by parsing "Main > Sub" format
+  const hierarchy = {};
+  proc.forEach(r => {
+    const reason = r._processReason || "Sin clasificar";
+    const parts = reason.split(" > ");
+    const main = parts[0];
+    const sub = parts[1] || null;
+    if (!hierarchy[main]) hierarchy[main] = {total:0, subs:{}, items:[]};
+    hierarchy[main].total++; hierarchy[main].items.push(r);
+    if (sub) {
+      if (!hierarchy[main].subs[sub]) hierarchy[main].subs[sub] = {count:0, items:[]};
+      hierarchy[main].subs[sub].count++; hierarchy[main].subs[sub].items.push(r);
+    }
+  });
+
+  const sorted = Object.entries(hierarchy).sort((a,b) => b[1].total - a[1].total);
+  const toggle = k => setExpanded(p => ({...p,[k]:!p[k]}));
+
+  const ProjectItem = ({r}) => (
+    <div onClick={()=>onSelect(r)} style={{fontSize:11,padding:"4px 8px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.02)",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:0.5}}
+      onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background="rgba(255,255,255,0.02)"}} onMouseLeave={e=>{e.currentTarget.style.opacity="0.5";e.currentTarget.style.background="transparent"}}>
+      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"55%"}}>{(r._projectName||r["Project name"]||"").replace(/^KD-\w+:\s*/,"")}</span>
+      <div style={{display:"flex",alignItems:"center",gap:5}}>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:PRODUCT_COLORS[r._product]||"#636E72"}}>{r._product}</span>
+        {r._hasGhosting && <span style={{fontSize:8,color:"#9B59B6",fontWeight:700}}>GHOST</span>}
+        {r._isReverseETL && <span style={{fontSize:8,color:"#F39C12",fontWeight:700}}>ETL</span>}
+      </div>
+    </div>
+  );
+
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>
+    {sorted.map(([main, d]) => {
+      const desc = PROCESS_CATEGORIES[main]||"";
+      const isExp = expanded[main];
+      const subs = Object.entries(d.subs).sort((a,b) => b[1].count - a[1].count);
+      const hasSubs = subs.length > 0;
+      const directItems = d.items.filter(r => !(r._processReason||"").includes(" > "));
+      return (
+        <div key={main} style={{background:"rgba(255,255,255,0.02)",borderRadius:10,overflow:"hidden",border:"1px solid rgba(249,160,63,0.12)"}}>
+          {/* Level 1: Main category */}
+          <div onClick={()=>toggle(main)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"background 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#F9A03F",fontFamily:"'Outfit',sans-serif",minWidth:36,textAlign:"right"}}>{d.total}</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#F9A03F"}}>{main}</div>
+                <div style={{fontSize:10,opacity:0.35,marginTop:1}}>{desc}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {hasSubs && <div style={{fontSize:10,opacity:0.3,fontFamily:"'JetBrains Mono',monospace"}}>{subs.length} sub</div>}
+              <span style={{fontSize:12,opacity:0.3,transform:isExp?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s"}}>{"\u25BC"}</span>
+            </div>
+          </div>
+
+          {isExp && <div style={{borderTop:"1px solid rgba(249,160,63,0.08)",padding:"8px 16px 12px"}}>
+            {hasSubs ? <>
+              {subs.map(([subName, subData]) => {
+                const subKey = main+"/"+subName;
+                const isSubExp = expanded[subKey];
+                const subDesc = PROCESS_CATEGORIES[main+" > "+subName]||"";
+                return (
+                  <div key={subName} style={{marginBottom:6}}>
+                    <div onClick={()=>toggle(subKey)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 4px",cursor:"pointer",borderRadius:6,transition:"background 0.15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.025)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,opacity:0.3,transform:isSubExp?"rotate(90deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block"}}>{"\u25B6"}</span>
+                        <div>
+                          <span style={{fontSize:12,fontWeight:600,opacity:0.75}}>{subName}</span>
+                          {subDesc && <div style={{fontSize:9,opacity:0.3,marginTop:1}}>{subDesc}</div>}
+                        </div>
+                      </div>
+                      <span style={{fontSize:13,fontWeight:700,color:"#F9A03F",fontFamily:"'JetBrains Mono',monospace"}}>{subData.count}</span>
+                    </div>
+                    {isSubExp && <div style={{marginLeft:16,borderLeft:"2px solid rgba(249,160,63,0.15)",paddingLeft:12,maxHeight:180,overflowY:"auto"}}>
+                      {subName==="Gestion firma" ? (() => {
+                        const etlItems = subData.items.filter(r=>r._isReverseETL);
+                        const otherItems = subData.items.filter(r=>!r._isReverseETL);
+                        return <>
+                          {etlItems.length>0 && <>
+                            <div style={{fontSize:9,fontWeight:700,color:"#F39C12",padding:"4px 0",opacity:0.6,fontFamily:"'JetBrains Mono',monospace"}}>REVERSE ETL ({etlItems.length})</div>
+                            {etlItems.map((r,i)=><ProjectItem key={`etl-${i}`} r={r} />)}
+                          </>}
+                          {otherItems.length>0 && <>
+                            {etlItems.length>0 && <div style={{fontSize:9,fontWeight:700,opacity:0.3,padding:"4px 0",fontFamily:"'JetBrains Mono',monospace"}}>OTROS ({otherItems.length})</div>}
+                            {otherItems.map((r,i)=><ProjectItem key={i} r={r} />)}
+                          </>}
+                        </>;
+                      })() : subData.items.map((r,i)=><ProjectItem key={i} r={r} />)}
+                    </div>}
+                  </div>
+                );
+              })}
+              {/* Direct items without subcategory */}
+              {directItems.length > 0 && <div style={{maxHeight:150,overflowY:"auto"}}>
+                {directItems.map((r,i)=><ProjectItem key={i} r={r} />)}
+              </div>}
+            </> : (
               <div style={{maxHeight:200,overflowY:"auto"}}>
                 {d.items.map((r,i)=><ProjectItem key={i} r={r} />)}
               </div>
@@ -950,13 +1169,16 @@ function generatePDF(csvType, stats, data) {
 
   // Header
   doc.setFillColor(8,9,14); doc.rect(0,0,W,38,'F');
+  doc.setTextColor(200,200,200); doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('ORBIDI',M,14);
   doc.setTextColor(249,160,63); doc.setFontSize(22); doc.setFont('helvetica','bold');
-  doc.text('CSAR',M,17);
+  doc.text('CSAR',M,24);
+  const csarW = doc.getTextWidth('CSAR');
   doc.setFontSize(8); doc.setTextColor(255,255,255);
-  doc.text('COHORT SAVE & RESCUE',M,23);
+  doc.text('COHORT SAVE & RESCUE', M + csarW + 4, 20);
   doc.setFontSize(9); doc.setTextColor(180,180,180);
-  doc.text(csvType?.label||'Dashboard',M,30);
-  doc.text('Generado: '+new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}),W-M,30,{align:'right'});
+  doc.text(csvType?.label||'Dashboard',M,32);
+  doc.text('Generado: '+new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}),W-M,32,{align:'right'});
   y = 46;
 
   // Metrics row
@@ -982,8 +1204,9 @@ function generatePDF(csvType, stats, data) {
   doc.text('Tasa de Rescate',M,y); y+=5;
   doc.setFont('helvetica','bold'); doc.setTextColor(46,204,113); doc.setFontSize(11);
   doc.text(`${saveRate}%`,M,y);
+  const rateW = doc.getTextWidth(`${saveRate}%`);
   doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80); doc.setFontSize(9);
-  doc.text(`  Gestionados: ${stats.managed}/${stats.total}   Perdidos con baja: ${stats.lostWithBaja}   Pdte Firma: ${stats.lostPdteFirma||0}`,M+12,y);
+  doc.text(`   Gestionados: ${stats.managed}/${stats.total}   Perdidos con baja: ${stats.lostWithBaja}   Pdte Firma: ${stats.lostPdteFirma||0}`,M+rateW+3,y);
   y+=12;
 
   // Loss categories
@@ -1002,7 +1225,7 @@ function generatePDF(csvType, stats, data) {
     doc.setTextColor(80,80,80); doc.setFont('helvetica','bold');
     doc.text(`${cat}:`,M+2,y);
     doc.setFont('helvetica','normal');
-    doc.text(` ${count} (${pct}%)`,M+2+doc.getTextWidth(`${cat}:`),y);
+    doc.text(`  ${count} (${pct}%)`,M+2+doc.getTextWidth(`${cat}:`)+2,y);
     doc.setFillColor(230,230,230); doc.rect(M+100,y-3,60,3,'F');
     doc.setFillColor(232,72,85); doc.rect(M+100,y-3,Math.max(60*(count/lost.length),1),3,'F');
     y+=6;
@@ -1024,7 +1247,7 @@ function generatePDF(csvType, stats, data) {
     doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
     doc.text(`${r}:`,M+2,y);
     doc.setFont('helvetica','normal');
-    doc.text(` ${c}`,M+2+doc.getTextWidth(`${r}:`),y);
+    doc.text(`  ${c}`,M+2+doc.getTextWidth(`${r}:`)+2,y);
     y+=5;
   });
   const pdte=proc.filter(r=>r._processReason==="Pdte firma");
@@ -1046,7 +1269,7 @@ function generatePDF(csvType, stats, data) {
     doc.setFont('helvetica','bold'); doc.setTextColor(60,60,60);
     doc.text(`${prod}:`,M+2,y);
     doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
-    doc.text(`  ${d.s+d.l+d.p} total  |  Salv: ${d.s}  |  Perd: ${d.l}  |  Proc: ${d.p}`,M+2+doc.getTextWidth(`${prod}:`),y);
+    doc.text(`  ${d.s+d.l+d.p} total  |  Salv: ${d.s}  |  Perd: ${d.l}  |  Proc: ${d.p}`,M+2+doc.getTextWidth(`${prod}:`)+2,y);
     y+=5;
   });
 
@@ -1088,7 +1311,7 @@ function CSARDashboard() {
       const c1 = getComment(row, isM2, isAcuerdo);
       const ops = getField(row, "Comentarios OPS");
       const ld = status==="perdido"?classifyLossDetailed(c1,ops,row,isAcuerdo):{cat:"",sub:"",subsub:""};
-      const pr = status==="en_proceso"?(isAcuerdo?classifyProcessAcuerdo(c1,ops):classifyProcess(c1,ops)):"";
+      const pr = status==="en_proceso"?(isAcuerdo?classifyProcessAcuerdo(c1,ops):classifyProcess(c1,ops,row,isPC,isM2,isAcuerdo)):"";
       const dateField = getDateCol(row, isM2, isAcuerdo);
       const ghost = hasGhosting(c1, ops);
       const rawPipeline = getField(row, "Project pipeline stage", "PC pipeline stage");
@@ -1105,7 +1328,7 @@ function CSARDashboard() {
         _managed:!!c1.trim()||!!ops.trim(), _dateField:dateField, _isPipelineCancelled:isPipelineCancelled,
         _hasGhosting:ghost, _hasBajaDate:!!bajaDate, _commentField:c1, _estadoMem:estadoMem,
         _isReverseETL:hasETL, _opsComment:ops, _estadoAcuerdo:estadoAcuerdo, _pipeline:pipeline, _isAcuerdo:isAcuerdo,
-        _isPdteDevolucion:isPdteDevolucion};
+        _isPdteDevolucion:isPdteDevolucion, _isPC:rawData.isPC};
     });
   },[rawData]);
 
@@ -1152,7 +1375,7 @@ function CSARDashboard() {
         <div style={{fontSize:56,fontWeight:900,marginBottom:6,background:"linear-gradient(135deg,#F9A03F,#E84855)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-0.02em"}}>CSAR</div>
         <div style={{fontSize:12,opacity:0.3,marginBottom:12,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.15em"}}>COHORT SAVE & RESCUE</div>
         <div style={{fontSize:14,opacity:0.45,marginBottom:40,lineHeight:1.6,maxWidth:420,margin:"0 auto 40px"}}>
-          Analisis y rescate de memorias en riesgo de caducidad.<br/>Cada dia cuenta {"\u2014"} nuestra mision es salvar cada proyecto.
+          Analisis y rescate de memorias / subvenciones en riesgo de caducidad.<br/>Cada dia cuenta {"\u2014"} nuestra mision es salvar cada proyecto.
         </div>
         <div onClick={()=>fileRef.current?.click()} style={{border:"2px dashed rgba(255,255,255,0.1)",borderRadius:20,padding:"44px 36px",cursor:"pointer",transition:"all 0.3s",background:"rgba(255,255,255,0.01)"}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor="#F9A03F";e.currentTarget.style.background="rgba(249,160,63,0.03)"}}
@@ -1180,8 +1403,10 @@ function CSARDashboard() {
     {/* HEADER */}
     <div style={{padding:"14px 28px",borderBottom:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#08090EF0",zIndex:100,backdropFilter:"blur(12px)"}}>
       <div style={{display:"flex",alignItems:"center",gap:14}}>
+        <div style={{fontSize:14,fontWeight:800,color:"rgba(255,255,255,0.5)",letterSpacing:"0.12em",fontFamily:"'Outfit',sans-serif"}}>ORBIDI</div>
+        <div style={{width:1,height:20,background:"rgba(255,255,255,0.1)"}} />
         <div style={{fontSize:20,fontWeight:800,background:"linear-gradient(135deg,#F9A03F,#E84855)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>CSAR</div>
-        {csvType && <div style={{fontSize:9,padding:"3px 8px",borderRadius:5,background:"rgba(255,255,255,0.05)",fontFamily:"'JetBrains Mono',monospace",opacity:0.4,fontWeight:600}}>{csvType.label}</div>}
+        {csvType && <div style={{fontSize:13,padding:"5px 14px",borderRadius:6,background:"rgba(249,160,63,0.1)",border:"1px solid rgba(249,160,63,0.2)",fontFamily:"'JetBrains Mono',monospace",color:"#F9A03F",opacity:0.8,fontWeight:700}}>{csvType.label}</div>}
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         {["overview","perdidos","en_proceso"].map(v=><button key={v} onClick={()=>setView(v)} style={{
@@ -1215,8 +1440,8 @@ function CSARDashboard() {
       <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
         <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.3,fontFamily:"'JetBrains Mono',monospace",marginRight:4}}>Producto:</span>
         <button onClick={()=>setProductFilter(null)} style={{background:!productFilter?"rgba(255,255,255,0.08)":"rgba(255,255,255,0.02)",border:!productFilter?"1px solid rgba(255,255,255,0.2)":"1px solid rgba(255,255,255,0.04)",color:!productFilter?"#fff":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>Todos</button>
-        <button onClick={()=>setProductFilter(productFilter==="__SERV__"?null:"__SERV__")} style={{background:productFilter==="__SERV__"?"rgba(123,104,238,0.18)":"rgba(255,255,255,0.02)",border:productFilter==="__SERV__"?"1px solid rgba(123,104,238,0.5)":"1px solid rgba(255,255,255,0.06)",color:productFilter==="__SERV__"?"#a78bfa":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>WEB/RRSS/SEO ({enriched.filter(r=>SERVICE_PRODUCTS.includes(r._product)).length})</button>
-        <div style={{width:1,height:16,background:"rgba(255,255,255,0.08)"}} />
+        {!csvType?.isPC && <><button onClick={()=>setProductFilter(productFilter==="__SERV__"?null:"__SERV__")} style={{background:productFilter==="__SERV__"?"rgba(123,104,238,0.18)":"rgba(255,255,255,0.02)",border:productFilter==="__SERV__"?"1px solid rgba(123,104,238,0.5)":"1px solid rgba(255,255,255,0.06)",color:productFilter==="__SERV__"?"#a78bfa":"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>WEB/RRSS/SEO ({enriched.filter(r=>SERVICE_PRODUCTS.includes(r._product)).length})</button>
+        <div style={{width:1,height:16,background:"rgba(255,255,255,0.08)"}} /></>}
         {allProducts.map(p=><button key={p} onClick={()=>setProductFilter(productFilter===p?null:p)} style={{background:productFilter===p?`${PRODUCT_COLORS[p]}20`:"rgba(255,255,255,0.02)",border:productFilter===p?`1px solid ${PRODUCT_COLORS[p]}60`:"1px solid rgba(255,255,255,0.04)",color:productFilter===p?PRODUCT_COLORS[p]:"rgba(255,255,255,0.35)",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>{p} ({enriched.filter(r=>r._product===p).length})</button>)}
       </div>
 
@@ -1243,7 +1468,7 @@ function CSARDashboard() {
       {/* === OVERVIEW === */}
       {view==="overview" && <>
         <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:16,marginBottom:20}}>
-          <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:14,padding:22,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:14,padding:22,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",overflow:"visible"}}>
             <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.3,marginBottom:14,fontFamily:"'JetBrains Mono',monospace"}}>Distribucion</div>
             <Donut segments={[{value:stats.saved,color:"#2ECC71",label:"Salvados"},{value:stats.lost,color:"#E84855",label:"Perdidos"},{value:stats.inProcess,color:"#F9A03F",label:"En Proceso"}]} />
             <div style={{display:"flex",gap:16,marginTop:14}}>
@@ -1334,20 +1559,41 @@ function CSARDashboard() {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
           <div style={{background:"rgba(249,160,63,0.04)",border:"1px solid rgba(249,160,63,0.1)",borderRadius:14,padding:22}}>
             <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.4,fontFamily:"'JetBrains Mono',monospace",marginBottom:4,color:"#F9A03F"}}>En que estan los proyectos?</div>
-            <div style={{fontSize:11,opacity:0.35,marginBottom:16}}>Desglose por sub-estado</div>
-            <HBar data={processData} />
-            <div style={{marginTop:14}}>
-              {processData.map((d,i)=><div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"6px 8px",marginBottom:4}}>
-                <div style={{fontSize:9,opacity:0.3,minWidth:20,textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}>{d.value}</div>
-                <div style={{fontSize:10,opacity:0.4,lineHeight:1.4}}><span style={{fontWeight:600}}>{d.label}</span>: {d.desc}</div>
-              </div>)}
+            <div style={{fontSize:11,opacity:0.35,marginBottom:12}}>Click en cada categoria para ver los proyectos</div>
+            <ProcessHierarchy data={pf} onSelect={setSelectedRow} />
+          </div>
+          <div style={{background:"rgba(249,160,63,0.04)",border:"1px solid rgba(249,160,63,0.1)",borderRadius:14,padding:22}}>
+            <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.4,fontFamily:"'JetBrains Mono',monospace",marginBottom:4,color:"#F9A03F"}}>Resumen Visual de Causas</div>
+            <div style={{fontSize:11,opacity:0.35,marginBottom:16}}>Distribucion por categoria principal</div>
+            {(() => {
+              const proc = pf.filter(r=>r._status==="en_proceso");
+              // Top-level categories
+              const cats={}; proc.forEach(r=>{const main=(r._processReason||"").split(" > ")[0]; cats[main]=(cats[main]||0)+1;});
+              const pd = Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([l,v])=>({label:l,value:v,color:"#F9A03F",desc:PROCESS_CATEGORIES[l]||""}));
+              // Subcategories of Pdte firma
+              const subs={}; proc.filter(r=>(r._processReason||"").startsWith("Pdte firma > ")).forEach(r=>{const sub=r._processReason.split(" > ")[1]; subs[sub]=(subs[sub]||0)+1;});
+              const sd = Object.entries(subs).sort((a,b)=>b[1]-a[1]).map(([l,v])=>({label:l,value:v,color:"#F9A03F90",desc:PROCESS_CATEGORIES["Pdte firma > "+l]||""}));
+              const ghostCount = proc.filter(r=>r._hasGhosting).length;
+              const expiredCount = proc.filter(r=>r._expired).length;
+              return <>
+                <HBar data={pd} />
+                {sd.length>0 && <>
+                  <div style={{fontSize:9,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.25,fontFamily:"'JetBrains Mono',monospace",marginTop:16,marginBottom:8}}>Desglose Pdte Firma</div>
+                  <HBar data={sd} />
+                </>}
+              </>;
+            })()}
+            <div style={{marginTop:20,padding:14,background:"rgba(255,255,255,0.02)",borderRadius:10}}>
+              <div style={{fontSize:10,fontWeight:600,opacity:0.4,marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>EN PROCESO CON GHOSTING</div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{fontSize:28,fontWeight:800,color:"#9B59B6",fontFamily:"'Outfit',sans-serif"}}>{pf.filter(r=>r._status==="en_proceso"&&r._hasGhosting).length}</div>
+                <div style={{fontSize:11,opacity:0.4,lineHeight:1.4}}>de {stats.inProcess} en proceso tienen flag de ghosting</div>
+              </div>
             </div>
           </div>
-          <PdteFirmaDeepDive items={pf} onSelect={setSelectedRow} csvType={csvType} />
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
           {[
-            {label:"YA VENCIDOS",items:pf.filter(r=>r._status==="en_proceso"&&r._expired),color:"#E84855",icon:"\uD83D\uDD34"},
             {label:"VENCEN EN \u22645 DIAS",items:pf.filter(r=>r._status==="en_proceso"&&!r._expired&&daysUntil(r._dateField)<=5),color:"#F9A03F",icon:"\uD83D\uDFE0"},
             {label:"TIENEN MARGEN (+5d)",items:pf.filter(r=>r._status==="en_proceso"&&daysUntil(r._dateField)>5),color:"#2ECC71",icon:"\uD83D\uDFE2"},
           ].map((g,i)=><div key={i} style={{background:`${g.color}08`,border:`1px solid ${g.color}20`,borderRadius:12,padding:18}}>
