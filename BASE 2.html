@@ -25,9 +25,9 @@ const { useState, useMemo, useCallback, useRef } = React;
 
 const HUBSPOT_BASE = "https://app-eu1.hubspot.com/contacts/25808060/record/2-110970937/";
 const HUBSPOT_BASE_PC = "https://app-eu1.hubspot.com/contacts/25808060/record/2-132008325/";
-const TODAY = new Date(); TODAY.setHours(0,0,0,0);
-const TODAY_STR = TODAY.toLocaleDateString("es-ES",{day:"numeric",month:"long",year:"numeric"});
-const MONTH_NAME = TODAY.toLocaleDateString("es-ES",{month:"long"});
+const TODAY = new Date(new Date().toLocaleString("en-US",{timeZone:"Europe/Madrid"})); TODAY.setHours(0,0,0,0);
+const TODAY_STR = TODAY.toLocaleDateString("es-ES",{day:"numeric",month:"long",year:"numeric",timeZone:"Europe/Madrid"});
+const MONTH_NAME = TODAY.toLocaleDateString("es-ES",{month:"long",timeZone:"Europe/Madrid"});
 const MONTH_CAP = MONTH_NAME.charAt(0).toUpperCase()+MONTH_NAME.slice(1);
 const DAYS_IN_MONTH = new Date(TODAY.getFullYear(), TODAY.getMonth()+1, 0).getDate();
 
@@ -233,9 +233,10 @@ function getPipeline(row) {
 }
 
 /* ========== UTILS ========== */
-function isExpired(d) { if (!d) return false; const dt=new Date(d); dt.setHours(0,0,0,0); return dt < TODAY; }
-function daysUntil(d) { if (!d) return 999; const dt=new Date(d); dt.setHours(0,0,0,0); return Math.ceil((dt-TODAY)/86400000); }
-function getWeek(d) { if (!d) return 0; const day=new Date(d).getDate(); if (day<=7) return 1; if (day<=14) return 2; if (day<=21) return 3; return 4; }
+function parseLocalDate(d) { if (!d) return new Date(NaN); const p=d.split('-'); return new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2])); }
+function isExpired(d) { if (!d) return false; const dt=parseLocalDate(d); dt.setHours(0,0,0,0); return dt < TODAY; }
+function daysUntil(d) { if (!d) return 999; const dt=parseLocalDate(d); dt.setHours(0,0,0,0); return Math.ceil((dt-TODAY)/86400000); }
+function getWeek(d) { if (!d) return 0; const day=parseLocalDate(d).getDate(); if (day<=7) return 1; if (day<=14) return 2; if (day<=21) return 3; return 4; }
 function getWeekLabel(w) {
   const m = MONTH_CAP.slice(0,3);
   if (w===1) return `1\u20137 ${m}`;
@@ -250,7 +251,7 @@ function isCancelledPipeline(pipeline, isPC) {
   if (isPC) return PC_CANCELLED_STAGES.includes(pipeline);
   return pipeline === "CANCELADO";
 }
-function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && s !== "0000-00-00" && !isNaN(new Date(s).getTime()); }
+function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && s !== "0000-00-00" && !isNaN(parseLocalDate(s).getTime()); }
 
 function hasReverseETL(c1, ops) {
   const c = ((c1||"")+" "+(ops||"")).toLowerCase();
@@ -765,6 +766,7 @@ function UpcomingChart({ items, onSelectProject }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [exclCancelled, setExclCancelled] = useState(true);
   const [exclLost, setExclLost] = useState(true);
+  const [exclSaved, setExclSaved] = useState(false);
 
   const endOfMonth = new Date(TODAY.getFullYear(), TODAY.getMonth()+1, 0);
   endOfMonth.setHours(0,0,0,0);
@@ -773,6 +775,7 @@ function UpcomingChart({ items, onSelectProject }) {
   let filtered = items.filter(r => daysUntil(r._dateField) >= 0);
   if (exclCancelled) filtered = filtered.filter(r=>!r._isPipelineCancelled);
   if (exclLost) filtered = filtered.filter(r=>r._status!=="perdido");
+  if (exclSaved) filtered = filtered.filter(r=>r._status!=="salvado");
 
   const days = Array.from({length:totalDays}, (_,i) => {
     const date = new Date(TODAY); date.setDate(date.getDate()+i);
@@ -798,6 +801,10 @@ function UpcomingChart({ items, onSelectProject }) {
           <div style={{fontSize:11,opacity:0.3,marginTop:3}}>Haz clic en un dia para ver detalle</div>
         </div>
         <div style={{display:"flex",gap:12}}>
+          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,opacity:0.45}}>
+            <input type="checkbox" checked={exclSaved} onChange={e=>setExclSaved(e.target.checked)} style={{accentColor:"#2ECC71"}} />
+            Excluir Salvados
+          </label>
           <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,opacity:0.45}}>
             <input type="checkbox" checked={exclLost} onChange={e=>setExclLost(e.target.checked)} style={{accentColor:"#E84855"}} />
             Excluir Perdidos
@@ -1173,9 +1180,6 @@ function generatePDF(csvType, stats, data) {
   doc.text('ORBIDI',M,14);
   doc.setTextColor(249,160,63); doc.setFontSize(22); doc.setFont('helvetica','bold');
   doc.text('CSAR',M,24);
-  const csarW = doc.getTextWidth('CSAR');
-  doc.setFontSize(8); doc.setTextColor(255,255,255);
-  doc.text('COHORT SAVE & RESCUE', M + csarW + 4, 20);
   doc.setFontSize(9); doc.setTextColor(180,180,180);
   doc.text(csvType?.label||'Dashboard',M,32);
   doc.text('Generado: '+new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}),W-M,32,{align:'right'});
@@ -1289,13 +1293,34 @@ function CSARDashboard() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [view, setView] = useState("overview");
-  const [excludeCancelled, setExcludeCancelled] = useState(true);
+  const [excludeCancelled, setExcludeCancelled] = useState(false);
+  const [missingCols, setMissingCols] = useState([]);
   const fileRef = useRef(null);
+
+  const REQUIRED_COLS = {
+    PC: ["ID de registro","Nombre PC","Fecha caducidad 1\u00ba memoria","OPS - Comentarios Memoria 1","Comentarios OPS","PC pipeline stage","Estado 1a Memoria Sync","Estado Acuerdo","Fecha Presentaci\u00f3n 1a Memoria","BAJA - Fecha baja definitiva PC"],
+    MKT: ["ID de registro","Project name","Fecha caducidad 1\u00ba memoria","Comentarios Memoria 1","Comentarios OPS","Estado Acuerdo","Estado 1a Memoria Sync","Fecha Presentaci\u00f3n 1a Memoria","Fecha baja definitiva - MKT","Project pipeline stage"],
+    Acuerdos: ["ID de registro","Project name","Fecha Caducidad Subvenci\u00f3n","Estado Subvenci\u00f3n","Estado Acuerdo","Comentarios Oficializaci\u00f3n","Comentarios OPS","Fecha Acuerdo Oficializado","Fecha baja definitiva - MKT","Project pipeline stage"],
+  };
 
   const handleFile = useCallback(file => {
     const reader = new FileReader();
     reader.onload = e => {
-      try { const {headers,rows}=parseCSV(e.target.result); const ct=detectCSVType(headers,rows); setCsvType(ct); setRawData({rows,isM2:ct.isM2,isAcuerdo:ct.isAcuerdo||false,isPC:ct.isPC||false}); }
+      try {
+        const {headers,rows}=parseCSV(e.target.result);
+        const ct=detectCSVType(headers,rows);
+        // Validate required columns
+        const typeKey = ct.isAcuerdo ? "Acuerdos" : ct.isPC ? "PC" : "MKT";
+        const reqCols = REQUIRED_COLS[typeKey] || [];
+        const normHeaders = headers.map(h => normalizeKey(h));
+        const missing = reqCols.filter(col => {
+          const normCol = normalizeKey(col);
+          return !normHeaders.some(nh => nh === normCol || nh.includes(normCol) || normCol.includes(nh));
+        });
+        setMissingCols(missing);
+        setCsvType(ct);
+        setRawData({rows,isM2:ct.isM2,isAcuerdo:ct.isAcuerdo||false,isPC:ct.isPC||false});
+      }
       catch(err) { alert("Error: "+err.message); }
     };
     reader.readAsText(file,"UTF-8");
@@ -1416,7 +1441,7 @@ function CSARDashboard() {
         }}>{v==="overview"?"General":v==="perdidos"?"Perdidos":"En Proceso"}</button>)}
         <div style={{width:1,height:20,background:"rgba(255,255,255,0.06)",margin:"0 4px"}} />
         <button onClick={()=>generatePDF(csvType, stats, pf)} style={{background:"rgba(232,72,85,0.08)",border:"1px solid rgba(232,72,85,0.2)",color:"#E84855",padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>PDF</button>
-        <button onClick={()=>{setRawData(null);setCsvType(null);setStatusFilter(null);setProductFilter(null);setSearchTerm("");setView("overview");setExcludeCancelled(true)}}
+        <button onClick={()=>{setRawData(null);setCsvType(null);setStatusFilter(null);setProductFilter(null);setSearchTerm("");setView("overview");setExcludeCancelled(true);setMissingCols([])}}
           style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.35)",padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontFamily:"'JetBrains Mono',monospace"}}>Nuevo CSV</button>
       </div>
     </div>
@@ -1453,6 +1478,15 @@ function CSARDashboard() {
         </label>
       </div>
 
+
+      {/* MISSING COLUMNS WARNING */}
+      {missingCols.length > 0 && <div style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.3)",borderRadius:10,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"flex-start",gap:10}}>
+        <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:"#E74C3C",marginBottom:4}}>Faltan columnas en el CSV</div>
+          <div style={{fontSize:11,opacity:0.7,lineHeight:1.5}}>Columnas no encontradas: <strong>{missingCols.join(", ")}</strong>. Puede haber inconsistencias en los datos.</div>
+        </div>
+      </div>}
 
       {/* TOP METRICS */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(155px, 1fr))",gap:10,marginBottom:20}}>
