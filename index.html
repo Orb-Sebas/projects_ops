@@ -536,12 +536,8 @@ footer{
       <input id="portalId" type="text" placeholder="ej. 12345678" />
     </label>
     <label>
-      Object type
-      <select id="objectType" style="background: var(--bg-soft); border: 1px solid var(--border); color: var(--text); padding: 7px 11px; font-family: var(--font-mono); font-size: 12px; border-radius: 3px;">
-        <option value="0-3">Deal (0-3)</option>
-        <option value="0-1">Contact (0-1)</option>
-        <option value="0-2">Company (0-2)</option>
-      </select>
+      Object schema
+      <input id="objectType" type="text" placeholder="2-110970937" style="width: 130px;" />
     </label>
   </div>
 </div>
@@ -672,9 +668,19 @@ const fmt = n => (n ?? 0).toLocaleString('es-CO');
 const pct = (n, d) => d ? ((n/d)*100).toFixed(1) + '%' : '0.0%';
 
 /* ——————————————————————————— state ——————————————————————————— */
+// Migración: limpia defaults viejos (0-3, 0-1, 0-2) si quedaron guardados
+const CONFIG_VERSION = 2;
+try {
+  if (parseInt(localStorage.getItem('configVersion') || '0') < CONFIG_VERSION) {
+    localStorage.removeItem('portalId');
+    localStorage.removeItem('objectType');
+    localStorage.setItem('configVersion', String(CONFIG_VERSION));
+  }
+} catch(_){}
+
 const state = {
-  portalId: localStorage.getItem('portalId') || '',
-  objectType: localStorage.getItem('objectType') || '0-3',
+  portalId: localStorage.getItem('portalId') || '25808060',
+  objectType: localStorage.getItem('objectType') || '2-110970937',
   activeGroup: null,
   filterScenario: 'all',
   search: '',
@@ -955,7 +961,7 @@ function gotoPage(p) { state.page = p; renderTable(); }
 /* ——————————————————————————— hubspot url ——————————————————————————— */
 function buildHubspotUrl(id) {
   const pid = state.portalId || '_';
-  return `https://app.hubspot.com/contacts/${pid}/record/${state.objectType}/${id}`;
+  return `https://app-eu1.hubspot.com/contacts/${pid}/record/${state.objectType}/${id}`;
 }
 
 /* ——————————————————————————— export ——————————————————————————— */
@@ -1029,7 +1035,7 @@ function renderCharts() {
     svgParts.push(`<text x="${cx}" y="${MT + innerH - ((row.total/maxTotal)*innerH) - 6}" text-anchor="middle" fill="var(--text)" font-family="IBM Plex Mono" font-size="10" font-weight="600">${row.total}</text>`);
     // Scenario label — wrap
     const label = row.escenario;
-    const wrapped = wrapText(label, 14);
+    const wrapped = wrapText(label, 20);
     wrapped.forEach((line, idx) => {
       svgParts.push(`<text x="${cx}" y="${H - MB + 16 + idx*12}" text-anchor="middle" fill="var(--text-dim)" font-family="IBM Plex Sans" font-size="10">${esc(line)}</text>`);
     });
@@ -1112,8 +1118,8 @@ function attachTopbar() {
   });
   const ot = $('#objectType');
   ot.value = state.objectType;
-  ot.addEventListener('change', e => {
-    state.objectType = e.target.value;
+  ot.addEventListener('input', e => {
+    state.objectType = e.target.value.trim();
     try { localStorage.setItem('objectType', state.objectType); } catch(_){}
     if (state.activeGroup) renderTable();
   });
