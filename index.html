@@ -580,6 +580,31 @@ footer{
   </div>
 </section>
 
+<section id="sec-products">
+  <div class="section-head">
+    <h2>Lectura por producto</h2>
+    <span class="hint">Haz clic en una barra para filtrar el resto del reporte</span>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Volumen por producto</h3>
+      <div class="hint">Distribución del backlog · <span id="productFilterLabel" style="color:var(--brand)">sin filtro</span></div>
+      <svg class="chart" id="chartProductBars" viewBox="0 0 700 380"></svg>
+    </div>
+    <div class="chart-card">
+      <h3>Producto × grupo de contactabilidad</h3>
+      <div class="hint">Qué tipo de cliente domina en cada producto (% del producto)</div>
+      <svg class="chart" id="chartProductGroups" viewBox="0 0 700 380"></svg>
+      <div class="legend" id="legendProductGroups"></div>
+    </div>
+  </div>
+  <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em;">
+    <span>FILTRO GLOBAL POR PRODUCTO:</span>
+    <button class="btn product-chip" data-product="all">Todos</button>
+    <span id="productChips"></span>
+  </div>
+</section>
+
 <footer>
   <span>© Backlog Diagnostic — interno</span>
   <span id="footTotal"></span>
@@ -683,6 +708,8 @@ const state = {
   objectType: localStorage.getItem('objectType') || '2-110970937',
   activeGroup: null,
   filterScenario: 'all',
+  filterProduct: 'all',
+  globalProduct: 'all',
   search: '',
   sortKey: 'human_total',
   sortDir: 'desc',
@@ -698,10 +725,17 @@ const CLIENTS = RAW_DATA.map(c => {
 });
 
 const SCENARIOS = [...new Set(CLIENTS.map(c => c.escenario))].sort();
+const PRODUCTS = [...new Set(CLIENTS.map(c => c.product).filter(Boolean))]
+  .sort((a, b) => CLIENTS.filter(c => c.product === b).length - CLIENTS.filter(c => c.product === a).length);
 const GROUP_COUNTS = CLIENTS.reduce((acc, c) => {
   acc[c.group] = (acc[c.group] || 0) + 1;
   return acc;
 }, {});
+
+// Helper: apply global product filter to any dataset
+function applyGlobalFilter(arr) {
+  return state.globalProduct === 'all' ? arr : arr.filter(c => c.product === state.globalProduct);
+}
 
 /* ——————————————————————————— init ——————————————————————————— */
 function init() {
@@ -709,6 +743,8 @@ function init() {
   renderMetabar();
   renderGroupsGrid();
   renderCharts();
+  renderProductCharts();
+  renderProductChips();
   attachTopbar();
 }
 
@@ -720,19 +756,21 @@ function renderHeader() {
 }
 
 function renderMetabar() {
-  const totalCalls = CLIENTS.reduce((s,c) => s + c.call_total, 0);
-  const totalTexts = CLIENTS.reduce((s,c) => s + c.text_total, 0);
-  const totalEmails = CLIENTS.reduce((s,c) => s + c.email_total, 0);
-  const humanTotal = CLIENTS.reduce((s,c) => s + c.human_total, 0);
-  const humanSuc = CLIENTS.reduce((s,c) => s + c.human_success, 0);
+  const pool = applyGlobalFilter(CLIENTS);
+  const totalCalls = pool.reduce((s,c) => s + c.call_total, 0);
+  const totalTexts = pool.reduce((s,c) => s + c.text_total, 0);
+  const totalEmails = pool.reduce((s,c) => s + c.email_total, 0);
+  const humanTotal = pool.reduce((s,c) => s + c.human_total, 0);
+  const humanSuc = pool.reduce((s,c) => s + c.human_success, 0);
   const successRate = humanTotal ? ((humanSuc/humanTotal)*100).toFixed(1) : 0;
+  const scope = state.globalProduct === 'all' ? `${SCENARIOS.length} escenarios` : `producto · ${state.globalProduct}`;
 
   const cells = [
-    { k:'Clientes totales', v: fmt(CLIENTS.length), s:`${SCENARIOS.length} escenarios` },
-    { k:'Llamadas',         v: fmt(totalCalls),    s:'ringover + twilio' },
-    { k:'Textos',           v: fmt(totalTexts),    s:'intercom + whatsapp + sms' },
-    { k:'Emails',           v: fmt(totalEmails),   s:'hubspot' },
-    { k:'Tasa de éxito',    v: successRate + '%',  s:`${fmt(humanSuc)} exitosas` },
+    { k:'Clientes totales', v: fmt(pool.length),    s: scope },
+    { k:'Llamadas',         v: fmt(totalCalls),     s:'ringover + twilio' },
+    { k:'Textos',           v: fmt(totalTexts),     s:'intercom + whatsapp + sms' },
+    { k:'Emails',           v: fmt(totalEmails),    s:'hubspot' },
+    { k:'Tasa de éxito',    v: successRate + '%',   s:`${fmt(humanSuc)} exitosas` },
   ];
   $('#metabar').innerHTML = cells.map(c =>
     `<div class="cell"><div class="k">${c.k}</div><div class="v">${c.v}<small>${c.s}</small></div></div>`
@@ -743,12 +781,15 @@ function renderMetabar() {
 function renderGroupsGrid() {
   const grid = $('#groupsGrid');
   grid.innerHTML = '';
-  GROUP_DEF.forEach(g => {
-    const count = GROUP_COUNTS[g.key] || 0;
-    const pctStr = ((count/CLIENTS.length)*100).toFixed(1);
+  const scope = applyGlobalFilter(CLIENTS);
+  const scopeCounts = scope.reduce((acc, c) => { acc[c.group] = (acc[c.group]||0)+1; return acc; }, {});
 
-    // Compute channel distribution inside this group
-    const pool = CLIENTS.filter(c => c.group === g.key);
+  GROUP_DEF.forEach(g => {
+    const count = scopeCounts[g.key] || 0;
+    const pctStr = scope.length ? ((count/scope.length)*100).toFixed(1) : '0.0';
+
+    // Compute channel distribution inside this group (within current scope)
+    const pool = scope.filter(c => c.group === g.key);
     const sumCall  = pool.reduce((s,c)=>s+c.call_total,0);
     const sumText  = pool.reduce((s,c)=>s+c.text_total,0);
     const sumEmail = pool.reduce((s,c)=>s+c.email_total,0);
@@ -787,6 +828,7 @@ function openDetail(groupKey) {
   state.page = 0;
   state.search = '';
   state.filterScenario = 'all';
+  state.filterProduct = state.globalProduct; // inherit global filter
   state.sortKey = 'human_total';
   state.sortDir = 'desc';
 
@@ -795,7 +837,7 @@ function openDetail(groupKey) {
   panel.style.setProperty('--_c', g.css);
   panel.classList.add('open');
 
-  const pool = CLIENTS.filter(c => c.group === groupKey);
+  const pool = applyGlobalFilter(CLIENTS).filter(c => c.group === groupKey);
   const avgTotal = pool.length ? Math.round(pool.reduce((s,c)=>s+c.human_total,0)/pool.length) : 0;
   const avgRate = pool.length ? (pool.reduce((s,c)=>s+c.success_rate,0)/pool.length).toFixed(1) : 0;
 
@@ -818,6 +860,10 @@ function openDetail(groupKey) {
       <select id="scenarioFilter">
         <option value="all">Todos los escenarios</option>
         ${SCENARIOS.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+      </select>
+      <select id="productFilter">
+        <option value="all">Todos los productos</option>
+        ${PRODUCTS.map(p => `<option value="${esc(p)}" ${state.filterProduct===p?'selected':''}>${esc(p)}</option>`).join('')}
       </select>
       <button class="btn" id="exportBtn">Exportar CSV</button>
       <div style="flex:1"></div>
@@ -848,6 +894,7 @@ function openDetail(groupKey) {
 
   $('#searchInput').addEventListener('input', e => { state.search = e.target.value.trim().toLowerCase(); state.page = 0; renderTable(); });
   $('#scenarioFilter').addEventListener('change', e => { state.filterScenario = e.target.value; state.page = 0; renderTable(); });
+  $('#productFilter').addEventListener('change', e => { state.filterProduct = e.target.value; state.page = 0; renderTable(); });
   $('#exportBtn').addEventListener('click', exportCSV);
   document.querySelectorAll('.clients thead th[data-sort]').forEach(th => {
     th.addEventListener('click', () => {
@@ -878,6 +925,7 @@ function renderTable() {
 
   let rows = CLIENTS.filter(c => c.group === state.activeGroup);
   if (state.filterScenario !== 'all') rows = rows.filter(c => c.escenario === state.filterScenario);
+  if (state.filterProduct !== 'all')  rows = rows.filter(c => c.product === state.filterProduct);
   if (state.search) rows = rows.filter(c => c.project_id.toLowerCase().includes(state.search));
 
   // sort
@@ -969,6 +1017,7 @@ function exportCSV() {
   const g = GROUP_DEF.find(x => x.key === state.activeGroup);
   let rows = CLIENTS.filter(c => c.group === state.activeGroup);
   if (state.filterScenario !== 'all') rows = rows.filter(c => c.escenario === state.filterScenario);
+  if (state.filterProduct !== 'all')  rows = rows.filter(c => c.product === state.filterProduct);
   if (state.search) rows = rows.filter(c => c.project_id.toLowerCase().includes(state.search));
 
   const headers = ['project_id','hubspot_url','escenario','product','pipeline_stage','group','human_total','human_success','success_rate','call_total','call_success','text_total','text_success','email_total','email_success','bot_total','last_interaction_at','last_channel','total_last30d'];
@@ -1107,6 +1156,165 @@ function renderDonut() {
   `).join('');
 }
 
+/* ——————————————————————————— product charts ——————————————————————————— */
+function renderProductCharts() {
+  renderProductBars();
+  renderProductGroupChart();
+}
+
+function renderProductBars() {
+  const svg = $('#chartProductBars');
+  const W = 700, H = 380, ML = 110, MR = 80, MT = 20, MB = 30;
+  const innerW = W - ML - MR, innerH = H - MT - MB;
+
+  const scope = applyGlobalFilter(CLIENTS);
+  const data = PRODUCTS.map(p => ({
+    product: p,
+    count: scope.filter(c => c.product === p).length,
+    totalAll: CLIENTS.filter(c => c.product === p).length,
+  })).filter(d => d.totalAll > 0);
+
+  const maxCount = Math.max(...data.map(d => d.totalAll), 1);
+  const barH = innerH / data.length * 0.62;
+  const gap  = innerH / data.length;
+
+  const parts = [];
+  data.forEach((d, i) => {
+    const cy = MT + gap * i + gap/2;
+    const y = cy - barH/2;
+    // Background bar (total, dimmed)
+    const wTotal = (d.totalAll / maxCount) * innerW;
+    const wActive = (d.count / maxCount) * innerW;
+    parts.push(`<rect x="${ML}" y="${y}" width="${wTotal}" height="${barH}" fill="var(--border)" opacity="0.4" rx="2" />`);
+    // Active bar (filtered)
+    const isSelected = state.globalProduct === d.product;
+    const fill = isSelected ? 'var(--brand)' : 'var(--g-otros)';
+    parts.push(`<rect class="prod-bar" x="${ML}" y="${y}" width="${wActive}" height="${barH}" fill="${fill}" opacity="${isSelected?1:0.9}" rx="2" style="cursor:pointer" data-product="${esc(d.product)}">
+      <title>${d.product}: ${d.count} en alcance · ${d.totalAll} total</title>
+    </rect>`);
+    // Product label
+    parts.push(`<text x="${ML-12}" y="${cy+4}" text-anchor="end" fill="${isSelected?'var(--brand)':'var(--text)'}" font-family="IBM Plex Mono" font-size="11" font-weight="${isSelected?600:500}">${esc(d.product)}</text>`);
+    // Value
+    parts.push(`<text x="${ML + wTotal + 10}" y="${cy+4}" fill="var(--text-dim)" font-family="IBM Plex Mono" font-size="11">${fmt(d.count)}${d.count !== d.totalAll ? ` / ${fmt(d.totalAll)}` : ''}</text>`);
+  });
+
+  svg.innerHTML = parts.join('');
+
+  // Attach click handlers
+  svg.querySelectorAll('.prod-bar').forEach(bar => {
+    bar.addEventListener('click', () => {
+      const p = bar.dataset.product;
+      setGlobalProduct(state.globalProduct === p ? 'all' : p);
+    });
+  });
+
+  // Update filter label
+  const label = $('#productFilterLabel');
+  if (label) label.textContent = state.globalProduct === 'all' ? 'sin filtro' : state.globalProduct;
+}
+
+function renderProductGroupChart() {
+  const svg = $('#chartProductGroups');
+  const W = 700, H = 380, ML = 80, MR = 20, MT = 20, MB = 60;
+  const innerW = W - ML - MR, innerH = H - MT - MB;
+
+  // Matrix: rows = products, cols = groups (percentage within product)
+  const data = PRODUCTS.map(p => {
+    const pool = CLIENTS.filter(c => c.product === p);
+    const row = { product: p, total: pool.length };
+    GROUP_DEF.forEach(g => { row[g.key] = pool.filter(c => c.group === g.key).length; });
+    return row;
+  }).filter(d => d.total > 0);
+
+  const barW = innerW / data.length * 0.6;
+  const gap  = innerW / data.length;
+
+  const parts = [];
+  // Y axis labels (percentage)
+  [0, 25, 50, 75, 100].forEach(p => {
+    const y = MT + innerH - (p/100) * innerH;
+    parts.push(`<line x1="${ML}" y1="${y}" x2="${W-MR}" y2="${y}" stroke="var(--border-soft)" stroke-width="1" />`);
+    parts.push(`<text x="${ML-8}" y="${y+3}" text-anchor="end" fill="var(--text-faint)" font-family="IBM Plex Mono" font-size="9">${p}%</text>`);
+  });
+
+  data.forEach((row, i) => {
+    const cx = ML + gap * i + gap/2;
+    const x = cx - barW/2;
+    let yCursor = MT + innerH;
+    GROUP_DEF.forEach(g => {
+      const n = row[g.key];
+      if (!n) return;
+      const h = (n / row.total) * innerH;
+      yCursor -= h;
+      const isActive = !state.activeGroup || state.activeGroup === g.key;
+      parts.push(`<rect x="${x}" y="${yCursor}" width="${barW}" height="${h}" fill="${g.css}" opacity="${isActive?0.88:0.2}" style="cursor:pointer" data-group="${g.key}">
+        <title>${row.product} · ${g.name}: ${n} (${((n/row.total)*100).toFixed(1)}%)</title>
+      </rect>`);
+    });
+    // Product label below
+    parts.push(`<text x="${cx}" y="${H - MB + 20}" text-anchor="middle" fill="var(--text)" font-family="IBM Plex Mono" font-size="11" font-weight="500">${esc(row.product)}</text>`);
+    parts.push(`<text x="${cx}" y="${H - MB + 36}" text-anchor="middle" fill="var(--text-faint)" font-family="IBM Plex Mono" font-size="9">${fmt(row.total)} clientes</text>`);
+  });
+
+  svg.innerHTML = parts.join('');
+
+  // Click on segment opens that group
+  svg.querySelectorAll('rect[data-group]').forEach(r => {
+    r.addEventListener('click', () => openDetail(r.dataset.group));
+  });
+
+  // Legend
+  $('#legendProductGroups').innerHTML = GROUP_DEF.map(g => `
+    <div class="item"><span class="sw" style="background:${g.css}"></span>${g.name}</div>
+  `).join('');
+}
+
+/* ——————————————————————————— product chips (global filter) ——————————————————————————— */
+function renderProductChips() {
+  // Render per-product chips inside #productChips
+  const container = $('#productChips');
+  container.innerHTML = PRODUCTS.map(p => {
+    const count = CLIENTS.filter(c => c.product === p).length;
+    const active = state.globalProduct === p;
+    const style = active ? 'border-color: var(--brand); color: var(--brand);' : '';
+    return `<button class="btn product-chip-item" data-product="${esc(p)}" style="${style}">${esc(p)} · ${fmt(count)}</button>`;
+  }).join(' ');
+
+  // Attach listeners to the freshly-rendered chips
+  container.querySelectorAll('.product-chip-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.product;
+      setGlobalProduct(p === state.globalProduct ? 'all' : p);
+    });
+  });
+
+  // Update "Todos" button style (listener wired once in attachTopbar)
+  const allBtn = document.querySelector('.product-chip[data-product="all"]');
+  if (allBtn) {
+    const isAll = state.globalProduct === 'all';
+    allBtn.style.borderColor = isAll ? 'var(--brand)' : '';
+    allBtn.style.color = isAll ? 'var(--brand)' : '';
+  }
+}
+
+function setGlobalProduct(product) {
+  state.globalProduct = product;
+  // If detail is open, propagate product filter there too
+  if (state.activeGroup) {
+    state.filterProduct = product;
+    const sel = $('#productFilter');
+    if (sel) sel.value = product;
+    renderTable();
+  }
+  // Re-render everything that depends on global scope
+  renderMetabar();
+  renderGroupsGrid();
+  renderCharts();
+  renderProductCharts();
+  renderProductChips();
+}
+
+
 /* ——————————————————————————— topbar (hubspot config) ——————————————————————————— */
 function attachTopbar() {
   const p = $('#portalId');
@@ -1123,6 +1331,10 @@ function attachTopbar() {
     try { localStorage.setItem('objectType', state.objectType); } catch(_){}
     if (state.activeGroup) renderTable();
   });
+
+  // "Todos" chip — wired once
+  const allBtn = document.querySelector('.product-chip[data-product="all"]');
+  if (allBtn) allBtn.addEventListener('click', () => setGlobalProduct('all'));
 }
 
 /* ——————————————————————————— go ——————————————————————————— */
