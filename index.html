@@ -9,22 +9,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,400..700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:           #0b0b0d;
-  --bg-elev:      #131316;
-  --bg-soft:      #1a1a1e;
-  --border:       #26262c;
-  --border-soft:  #1f1f24;
-  --text:         #ebe9e4;
-  --text-dim:     #8e8a82;
-  --text-faint:   #595551;
-  --brand:        #e4b860;        /* warm gold */
+  --bg:           #f1ebdb;        /* cream paper */
+  --bg-elev:      #ede6d3;        /* slightly deeper cream for cards */
+  --bg-soft:      #e6deca;        /* soft cream for hover / filter rows */
+  --border:       #c9bfa4;        /* warm tan */
+  --border-soft:  #d8cfb5;        /* softer tan */
+  --text:         #1a1814;        /* near-black warm */
+  --text-dim:     #6e6656;        /* muted brown-gray */
+  --text-faint:   #9d9480;        /* faint tan-gray */
+  --brand:        #b8411f;        /* burnt sienna (same family as REINICIAR in your ref) */
 
   --g-sin:        #6b7280;   /* slate */
-  --g-llamada:    #f59e0b;   /* amber */
-  --g-texto:      #06b6d4;   /* cyan */
-  --g-receptivo:  #34d399;   /* emerald */
-  --g-saturado:   #ef4444;   /* red */
-  --g-otros:      #818cf8;   /* indigo */
+  --g-llamada:    #c47a0a;   /* amber, deeper for light bg */
+  --g-texto:      #0891b2;   /* cyan, deeper for light bg */
+  --g-receptivo:  #059669;   /* emerald, deeper */
+  --g-saturado:   #b91c1c;   /* red, deeper */
+  --g-otros:      #4f46e5;   /* indigo, deeper */
 
   --font-display: 'Fraunces', 'Times New Roman', serif;
   --font-body:    'IBM Plex Sans', system-ui, sans-serif;
@@ -35,8 +35,8 @@ html,body{ background: var(--bg); color: var(--text); font-family: var(--font-bo
 body::before{
   content:''; position:fixed; inset:0; pointer-events:none; z-index:-1;
   background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(228,184,96,.06), transparent 60%),
-    radial-gradient(900px 500px at -10% 30%, rgba(129,140,248,.05), transparent 60%);
+    radial-gradient(1200px 600px at 80% -10%, rgba(184,65,31,.06), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(79,70,229,.04), transparent 60%);
 }
 a{ color: inherit; }
 
@@ -45,7 +45,7 @@ a{ color: inherit; }
   border-bottom: 1px solid var(--border);
   padding: 20px 40px;
   display:flex; align-items:center; justify-content:space-between; gap:20px;
-  background: rgba(11,11,13,.85); backdrop-filter: blur(10px);
+  background: rgba(241,235,219,.88); backdrop-filter: blur(10px);
   position: sticky; top:0; z-index: 100;
 }
 .brand{
@@ -387,10 +387,10 @@ svg.chart{ width:100%; height:auto; display:block; }
 .btn-primary{
   background: var(--_c);
   border-color: var(--_c);
-  color: #0b0b0d;
+  color: var(--bg);
   font-weight: 600;
 }
-.btn-primary:hover{ opacity: .88; color: #0b0b0d; }
+.btn-primary:hover{ opacity: .88; color: var(--bg); }
 .close-btn{
   background: transparent; border: none; color: var(--text-dim); cursor: pointer;
   font-family: var(--font-mono); font-size: 12px; padding: 4px 8px;
