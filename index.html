@@ -208,11 +208,10 @@
     <div class="nav-links">
       <a href="#resumen">Resumen</a>
       <a href="#vida">Línea de vida</a>
-      <a href="#modelo">Modelo</a>
       <a href="#rrss">RRSS</a>
       <a href="#seo">SEO</a>
       <a href="#web">WEB</a>
-      <a href="#control">Control</a>
+      <a href="#modelo">Modelo</a>
       <a href="#anexo">Anexo</a>
     </div>
   </div>
@@ -264,6 +263,104 @@
       <div class="tl-node"><div class="tl-dot key">7</div><div class="tl-lbl">Presentar MEM 2</div><div class="tl-sub">≤ 476 días</div></div>
     </div>
     <div class="note"><b>Anclas temporales en HubSpot (objeto projects):</b> inicio de prestación · <code>fecha_caducidad_2o_memoria__12_</code> (inicio + 12 meses) · <code>finalizacion_del_kd</code> (día 476, caducidad real de MEM 2). Entre presentar MEM 1 y crear MEM 2 ocurren los feedbacks: ahí es donde RRSS y SEO ganan o pierden su evidencia.</div>
+  </div>
+</section>
+
+<!-- ============ S4 PRODUCTOS ============ -->
+<section id="productos">
+  <div class="wrap">
+    <div class="eyebrow">Diagnóstico por producto</div>
+    <h2 class="sec-title">Dónde se cae cada proyecto</h2>
+    <p class="sec-lead">El mismo flujo operacional para los tres productos, pero la caída ocurre en pasos distintos. Cada paso marcado con un número es un <b>punto de caída</b>; abajo se detalla qué falla exactamente y con qué campo de HubSpot se detecta.</p>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--red)"></span>Punto de caída de creación / tramitación</span>
+      <span><span class="sw" style="background:var(--evi)"></span>Punto de caída de evidencia</span>
+    </div>
+
+    <!-- RRSS -->
+    <div class="prod-block" id="rrss">
+      <div class="prod-head"><span class="prod-chip prod-rrss">RRSS</span><h3 style="font-size:22px">Se cae por falta de evidencia en la Fase Anual</h3></div>
+      <p style="color:var(--ink-2);max-width:860px">El primer entregable es la <b>Fase Inicial</b>. Sin el <b>enlace de la cuenta</b> no se puede crear la Memoria 1. Después se programa la Fase Inicial y se ejecuta la <b>Fase Anual</b> (37 posts → 52 en todo el año de prestación), con el requisito de <b>≥12 publicaciones en los últimos 3 meses</b> antes del mes 12. Sin esa evidencia no hay memoria que crear, y se ve <b>meses antes</b> en los tags de Metricool. La programación está OK si <code>check__programacion_fase_anual = si</code> o el stage es <code>SEGUIMIENTO (593907958)</code> / <code>FINALIZADO (593899732)</code>.</p>
+      <div class="flow" style="--pc:#2563EB;--pc-tint:#EAF1FE">
+        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + enlace</div><div class="bx-s">QA brief</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box"><div class="bx-t">Fase Inicial</div><div class="bx-s">1er entregable</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">2</span><div class="bx-t">Crear MEM 1</div><div class="bx-s">requiere enlace</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt risk-evi"><span class="pin">3</span><div class="bx-t">Programación Fase Anual</div><div class="bx-s">≥12 posts / 3m</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 12</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
+      </div>
+      <ul class="drops">
+        <div class="dh">Puntos de caída — dónde exactamente</div>
+        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + enlace» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o falta el enlace de la cuenta sin el que <b>no se puede crear la MEM 1</b>.</span> <span class="pill crea">Creación</span><br><span class="dfield">validacion_qa_brief_minimo = "Falta información" / "Falta enlace de cuenta de RRSS"</span><span class="dfield">bloqueo__detalle = "Falta Enlace de Cuenta de RRSS"</span></div></li>
+        <li><span class="dmark">2</span><div class="dbody"><span class="dstep">En «Crear MEM 1»</span> — <span class="dtxt">bloqueo manual de Tramitación que impide crearla a tiempo.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_1_manual = "Prod - Sin presentación del cliente (RRSS)" / "Prod - Enlace a red social invalida (RRSS)"</span></div></li>
+        <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Programación Fase Anual» <span class="at">· el punto crítico de RRSS</span></span> — <span class="dtxt">Fase Anual no programada o caída de programación → <b>&lt;12 publicaciones en los últimos 3 meses</b> → sin evidencia que justificar. Se ve meses antes del mes 12.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">casos_especiales = "Revinculación Metricool" / "Reprogramación Metricool" / "Reprogramación manual" / "Programación intermitente"</span><span class="dfield">check__programacion_fase_anual ≠ si · stage ∉ {SEGUIMIENTO 593907958, FINALIZADO 593899732}</span></div></li>
+        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Sin programación (RRSS)" / "Prod - Error en programación (RRSS)"</span></div></li>
+      </ul>
+    </div>
+
+    <!-- SEO -->
+    <div class="prod-block" id="seo">
+      <div class="prod-head"><span class="prod-chip prod-seo">SEO</span><h3 style="font-size:22px">Se cae por falta de dato orgánico</h3></div>
+      <p style="color:var(--ink-2);max-width:860px">El primer entregable es la <b>estrategia SEO</b>; tras los feedbacks, el hito clave es la <b>implementación</b>. Si sale bien, se genera <b>dato orgánico hasta el mes 12</b> y la memoria se crea sin problema. La estrategia debería implementarse <b>≥6 meses antes</b> para que dé dato. El doble riesgo: el cliente dice que <b>implementa él</b> y no lo hace, o se implementa pero <b>SE Ranking no recoge dato</b>. La verificación del dato vive <b>fuera del CRM</b> (API SE Ranking / revisión manual).</p>
+      <div class="flow" style="--pc:#1F9D5B;--pc-tint:#E7F6EE">
+        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + accesos</div><div class="bx-s">QA brief</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box"><div class="bx-t">Estrategia SEO aprobada</div><div class="bx-s">1er entregable</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt risk-evi"><span class="pin">2</span><div class="bx-t">Implementación</div><div class="bx-s">≥ 6 meses antes</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk-evi"><span class="pin">3</span><div class="bx-t">Data orgánica + competidores</div><div class="bx-s">SE Ranking</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 12</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
+      </div>
+      <ul class="drops">
+        <div class="dh">Puntos de caída — dónde exactamente</div>
+        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + accesos» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o el sitio web no carga / 2FA / faltan credenciales para acceder y capturar.</span> <span class="pill crea">Creación</span><br><span class="dfield">validacion_qa_brief_minimo = "Falta información"</span><span class="dfield">bloqueo__detalle = "Sitio Web no Carga" / "2FA" / "Falta Credenciales de Acceso." / "Sitio WEB no Apto para SEO"</span></div></li>
+        <li><span class="dmark evi">2</span><div class="dbody"><span class="dstep">En «Implementación» <span class="at">· el punto crítico de SEO</span></span> — <span class="dtxt">estrategia pendiente, o «implementación por cliente» que el cliente nunca ejecuta → no se genera dato.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">seo__estado_implementacion = "Implementación Pendiente" / "Implementación por cliente"</span><span class="dfield">casos_especiales = "SEO - Cliente implementa estrategia"</span></div></li>
+        <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Data orgánica + competidores»</span> — <span class="dtxt">aunque se implemente, <b>SE Ranking no recoge dato orgánico ni competidores</b> en los últimos 3 meses → sin evidencia. Verificación externa al CRM.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">SE Ranking (API / revisión manual)</span><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Proyecto no creado en SE Ranking (SEO)"</span></div></li>
+        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Presentación incompleta (SEO)" / "Prod - Directorios caídos (SEO)"</span></div></li>
+      </ul>
+      <div class="note"><b>Mayor dependencia operativa del modelo:</b> el dato de SEO no vive en HubSpot. Requiere un campo espejo poblado por automatización (API SE Ranking) o revisión manual para poder marcar el riesgo de evidencia SEO.</div>
+    </div>
+
+    <!-- WEB -->
+    <div class="prod-block" id="web">
+      <div class="prod-head"><span class="prod-chip prod-web">WEB</span><h3 style="font-size:22px">Casi todo su riesgo es técnico, no de evidencia</h3></div>
+      <p style="color:var(--ink-2);max-width:860px">Ventaja de WEB: se puede justificar desde que la web está activa, así que <b>no tiene punto de caída de evidencia</b>. Su riesgo se concentra en <b>bloqueos técnicos</b> alrededor de MEM 1 (accesos, migración, dominio, capturas). El <b>cambio de sector</b> es atípico: el cliente cambia de IAE (p. ej. panadería → ropa), altera el alcance y puede generar subsanación. Su MEM 2 se referencia a <b>mes 15</b>.</p>
+      <div class="flow" style="--pc:#2563EB;--pc-tint:#EAF1FE">
+        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + dominio</div><div class="bx-s">QA brief</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">2</span><div class="bx-t">Primer entregable</div><div class="bx-s">migración / dominio</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box alt"><div class="bx-t">Web activa</div><div class="bx-s">✓ sin riesgo evidencia</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">3</span><div class="bx-t">Capturas / evidencias</div><div class="bx-s">accesos</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 15</div></div>
+        <div class="flow-conn"></div>
+        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
+      </div>
+      <ul class="drops">
+        <div class="dh">Puntos de caída — dónde exactamente</div>
+        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + dominio» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o falta dominio / migración pendiente.</span> <span class="pill crea">Creación</span><br><span class="dfield">validacion_qa_brief_minimo = "Falta información"</span><span class="dfield">bloqueo__detalle = "Falta dominio" / "Falta migración"</span></div></li>
+        <li><span class="dmark">2</span><div class="dbody"><span class="dstep">En «Primer entregable»</span> — <span class="dtxt">falta migración, falta dominio o capturas del registrador para construir/justificar.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle = "Falta migración" / "Falta dominio" / "Capturas del Registrador del Dominio"</span></div></li>
+        <li><span class="dmark">3</span><div class="dbody"><span class="dstep">En «Capturas / evidencias»</span> — <span class="dtxt">sitio web no carga, credenciales incorrectas o 2FA impiden acceder y capturar.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle = "Sitio Web no Carga" / "Falta Credenciales de Acceso." / "2FA"</span></div></li>
+        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar» <span class="at">· hasta mes 15</span></span> — <span class="dtxt">cambio de sector que altera el alcance y genera subsanación, bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle = "Cambio de sector"</span><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Sitio web no carga (WEB)" / "Prod - Falta migración (WEB)"</span></div></li>
+      </ul>
+    </div>
   </div>
 </section>
 
@@ -329,124 +426,6 @@
   </div>
 </section>
 
-<!-- ============ S4 PRODUCTOS ============ -->
-<section id="productos">
-  <div class="wrap">
-    <div class="eyebrow">Diagnóstico por producto</div>
-    <h2 class="sec-title">Dónde se cae cada proyecto</h2>
-    <p class="sec-lead">El mismo flujo operacional para los tres productos, pero la caída ocurre en pasos distintos. Cada paso marcado con un número es un <b>punto de caída</b>; abajo se detalla qué falla exactamente y con qué campo de HubSpot se detecta.</p>
-    <div class="legend">
-      <span><span class="sw" style="background:var(--red)"></span>Punto de caída de creación / tramitación</span>
-      <span><span class="sw" style="background:var(--evi)"></span>Punto de caída de evidencia</span>
-    </div>
-
-    <!-- RRSS -->
-    <div class="prod-block" id="rrss">
-      <div class="prod-head"><span class="prod-chip prod-rrss">RRSS</span><h3 style="font-size:22px">Se cae por falta de evidencia en la Fase Anual</h3></div>
-      <p style="color:var(--ink-2);max-width:860px">El primer entregable es la <b>Fase Inicial</b>. Sin el <b>enlace de la cuenta</b> no se puede crear la Memoria 1. Después se programa la Fase Inicial y se ejecuta la <b>Fase Anual</b> (37 posts → 52 en todo el año de prestación), con el requisito de <b>≥12 publicaciones en los últimos 3 meses</b> antes del mes 12. Sin esa evidencia no hay memoria que crear, y se ve <b>meses antes</b> en los tags de Metricool. La programación está OK si <code>check__programacion_fase_anual = si</code> o el stage es <code>SEGUIMIENTO (593907958)</code> / <code>FINALIZADO (593899732)</code>.</p>
-      <div class="flow" style="--pc:#2563EB;--pc-tint:#EAF1FE">
-        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + enlace</div><div class="bx-s">QA brief</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box"><div class="bx-t">Fase Inicial</div><div class="bx-s">1er entregable</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">2</span><div class="bx-t">Crear MEM 1</div><div class="bx-s">requiere enlace</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt risk-evi"><span class="pin">3</span><div class="bx-t">Programación Fase Anual</div><div class="bx-s">≥12 posts / 3m</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 12</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
-      </div>
-      <ul class="drops">
-        <div class="dh">Puntos de caída — dónde exactamente</div>
-        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + enlace» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o falta el enlace de la cuenta sin el que <b>no se puede crear la MEM 1</b>.</span> <span class="pill crea">Creación</span><br><span class="dfield">pipeline_stage = INBOX + validacion_qa_brief_minimo</span><span class="dfield">bloqueo__detalle: Falta enlace</span></div></li>
-        <li><span class="dmark">2</span><div class="dbody"><span class="dstep">En «Crear MEM 1»</span> — <span class="dtxt">bloqueo manual de Tramitación que impide crearla a tiempo.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_1_manual</span></div></li>
-        <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Programación Fase Anual» <span class="at">· el punto crítico de RRSS</span></span> — <span class="dtxt">Fase Anual no programada o caída de programación → <b>&lt;12 publicaciones en los últimos 3 meses</b> → sin evidencia que justificar. Se ve meses antes del mes 12.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">casos_especiales: Revinculación / Reprogramación Metricool / Reprogramación manual</span><span class="dfield">check__programacion_fase_anual ≠ si</span></div></li>
-        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual</span></div></li>
-      </ul>
-    </div>
-
-    <!-- SEO -->
-    <div class="prod-block" id="seo">
-      <div class="prod-head"><span class="prod-chip prod-seo">SEO</span><h3 style="font-size:22px">Se cae por falta de dato orgánico</h3></div>
-      <p style="color:var(--ink-2);max-width:860px">El primer entregable es la <b>estrategia SEO</b>; tras los feedbacks, el hito clave es la <b>implementación</b>. Si sale bien, se genera <b>dato orgánico hasta el mes 12</b> y la memoria se crea sin problema. La estrategia debería implementarse <b>≥6 meses antes</b> para que dé dato. El doble riesgo: el cliente dice que <b>implementa él</b> y no lo hace, o se implementa pero <b>SE Ranking no recoge dato</b>. La verificación del dato vive <b>fuera del CRM</b> (API SE Ranking / revisión manual).</p>
-      <div class="flow" style="--pc:#1F9D5B;--pc-tint:#E7F6EE">
-        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + accesos</div><div class="bx-s">QA brief</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box"><div class="bx-t">Estrategia SEO aprobada</div><div class="bx-s">1er entregable</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt risk-evi"><span class="pin">2</span><div class="bx-t">Implementación</div><div class="bx-s">≥ 6 meses antes</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk-evi"><span class="pin">3</span><div class="bx-t">Data orgánica + competidores</div><div class="bx-s">SE Ranking</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 12</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
-      </div>
-      <ul class="drops">
-        <div class="dh">Puntos de caída — dónde exactamente</div>
-        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + accesos» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o el sitio web no carga / 2FA / faltan credenciales para acceder y capturar.</span> <span class="pill crea">Creación</span><br><span class="dfield">pipeline_stage = INBOX + validacion_qa_brief_minimo</span><span class="dfield">bloqueo__detalle: Sitio web no carga / 2FA / Falta credenciales</span></div></li>
-        <li><span class="dmark evi">2</span><div class="dbody"><span class="dstep">En «Implementación» <span class="at">· el punto crítico de SEO</span></span> — <span class="dtxt">estrategia pendiente, o «implementación por cliente» que el cliente nunca ejecuta → no se genera dato.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">seo__estado_implementacion ∈ {Implementación pendiente, por cliente}</span></div></li>
-        <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Data orgánica + competidores»</span> — <span class="dtxt">aunque se implemente, <b>SE Ranking no recoge dato orgánico ni competidores</b> en los últimos 3 meses → sin evidencia. Verificación externa al CRM.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">SE Ranking (API / revisión manual)</span></div></li>
-        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual</span></div></li>
-      </ul>
-      <div class="note"><b>Mayor dependencia operativa del modelo:</b> el dato de SEO no vive en HubSpot. Requiere un campo espejo poblado por automatización (API SE Ranking) o revisión manual para poder marcar el riesgo de evidencia SEO.</div>
-    </div>
-
-    <!-- WEB -->
-    <div class="prod-block" id="web">
-      <div class="prod-head"><span class="prod-chip prod-web">WEB</span><h3 style="font-size:22px">Casi todo su riesgo es técnico, no de evidencia</h3></div>
-      <p style="color:var(--ink-2);max-width:860px">Ventaja de WEB: se puede justificar desde que la web está activa, así que <b>no tiene punto de caída de evidencia</b>. Su riesgo se concentra en <b>bloqueos técnicos</b> alrededor de MEM 1 (accesos, migración, dominio, capturas). El <b>cambio de sector</b> es atípico: el cliente cambia de IAE (p. ej. panadería → ropa), altera el alcance y puede generar subsanación. Su MEM 2 se referencia a <b>mes 15</b>.</p>
-      <div class="flow" style="--pc:#2563EB;--pc-tint:#EAF1FE">
-        <div class="flow-box"><div class="bx-t">Oficializar</div><div class="bx-s">AO</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt risk"><span class="pin">1</span><div class="bx-t">Brief + dominio</div><div class="bx-s">QA brief</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">2</span><div class="bx-t">Primer entregable</div><div class="bx-s">migración / dominio</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box alt"><div class="bx-t">Web activa</div><div class="bx-s">✓ sin riesgo evidencia</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">3</span><div class="bx-t">Capturas / evidencias</div><div class="bx-s">accesos</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box risk"><span class="pin">4</span><div class="bx-t">MEM 2 crear</div><div class="bx-s">mes 15</div></div>
-        <div class="flow-conn"></div>
-        <div class="flow-box"><div class="bx-t">MEM 2 presentar</div><div class="bx-s">≤ 476 d</div></div>
-      </div>
-      <ul class="drops">
-        <div class="dh">Puntos de caída — dónde exactamente</div>
-        <li><span class="dmark">1</span><div class="dbody"><span class="dstep">En «Brief + dominio» <span class="at">· antes de MEM 1</span></span> — <span class="dtxt">brief rechazado, o falta dominio / migración pendiente.</span> <span class="pill crea">Creación</span><br><span class="dfield">pipeline_stage = INBOX + validacion_qa_brief_minimo</span><span class="dfield">bloqueo__detalle: Falta Dominio / Falta Migración</span></div></li>
-        <li><span class="dmark">2</span><div class="dbody"><span class="dstep">En «Primer entregable»</span> — <span class="dtxt">falta migración, falta dominio o capturas del registrador para construir/justificar.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle: Falta Migración / Falta Dominio / Capturas Registrador</span></div></li>
-        <li><span class="dmark">3</span><div class="dbody"><span class="dstep">En «Capturas / evidencias»</span> — <span class="dtxt">sitio web no carga, credenciales incorrectas o 2FA impiden acceder y capturar.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle: Sitio web no carga / Falta credenciales / 2FA</span></div></li>
-        <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar» <span class="at">· hasta mes 15</span></span> — <span class="dtxt">cambio de sector que altera el alcance y genera subsanación, bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle: Cambio sector</span><span class="dfield">bloqueo_creacion_memoria_2_manual</span></div></li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- ============ S5 DASHBOARD ============ -->
-<section id="control">
-  <div class="wrap">
-    <div class="eyebrow">Las 5 etapas de control</div>
-    <h2 class="sec-title">Dónde mirar, en orden</h2>
-    <p class="sec-lead">El control recorre el flujo de izquierda a derecha en 5 etapas. En cada una, los proyectos se reparten en Alto / Medio / Bajo aplicando el modelo de dos dimensiones.</p>
-    <div class="tbl-wrap" style="margin-top:18px"><table>
-      <thead><tr><th>Etapa</th><th>Población</th><th>Qué la hace ALTO</th></tr></thead>
-      <tbody>
-        <tr><td><b>Acuerdos por oficializar</b></td><td><code>agreement_officialized_date IS NULL</code></td><td>Brief rechazado o antigüedad alta sin oficializar.</td></tr>
-        <tr><td><b>MEM 1 por crear</b></td><td>Oficializado, MEM 1 no creada</td><td>Tag bloqueante duro del producto, bloqueo manual MEM 1, o ≤30 días al vencimiento.</td></tr>
-        <tr><td><b>MEM 1 por presentar</b></td><td>MEM 1 creada, no presentada</td><td>Igual que crear + presentación pendiente cerca del vencimiento.</td></tr>
-        <tr><td><b>MEM 2 por crear</b></td><td>MEM 1 presentada, en ventana MEM 2</td><td><b>Evidencia ausente</b> (RRSS sin Fase Anual / SEO sin dato), tag duro, bloqueo manual MEM 2, o ventana ALTO de tiempo.</td></tr>
-        <tr><td><b>MEM 2 por presentar</b></td><td>MEM 2 creada, no presentada</td><td>Sin presentar entre mes 13 y 15, o bloqueo de presentación.</td></tr>
-      </tbody>
-    </table></div>
-    <p style="color:var(--ink-2);margin-top:18px">El detalle exacto de filtros por producto y nivel está en el <a href="#anexo">Anexo técnico</a>.</p>
-  </div>
-</section>
-
 <!-- ============ S6 GOBERNANZA ============ -->
 <section id="gobernanza">
   <div class="wrap">
@@ -473,9 +452,8 @@
 <!-- ============ S7 ANEXO ============ -->
 <section id="anexo">
   <div class="wrap">
-    <div class="eyebrow">Anexo técnico · Blueprint</div>
-    <h2 class="sec-title">Cómo construir cada tarjeta</h2>
-    <p class="sec-lead">Objeto personalizado <code>projects</code> · ID <code>2-110970937</code>.</p>
+    <h2 class="sec-title">Anexo técnico · Blueprint</h2>
+    <p class="sec-lead">Objeto personalizado <code>projects</code> · ID <code>2-110970937</code>. Valores extraídos en vivo de HubSpot.</p>
 
     <div class="anx-h">A1 · Diccionario de campos</div>
     <div class="tbl-wrap"><table>
@@ -485,21 +463,20 @@
         <tr><td><code>finalizacion_del_kd</code></td><td>Caducidad real de MEM 2 = día 476 desde inicio prestación.</td></tr>
         <tr><td><code>bloqueo__detalle</code></td><td>Bloqueos técnicos (ver A2).</td></tr>
         <tr><td><code>casos_especiales</code></td><td>Bloqueos de evidencia RRSS recuperables (ver A2).</td></tr>
-        <tr><td><code>seo__estado_implementacion</code></td><td>Implementación Hecha / pendiente / por cliente.</td></tr>
-        <tr><td><code>bloqueo_creacion_memoria_1_manual</code> · <code>..._2_manual</code></td><td>Bloqueos manuales del equipo de Tramitación.</td></tr>
-        <tr><td><code>validacion_qa_brief_minimo</code></td><td>“Falta información” + stage INBOX = brief rechazado.</td></tr>
+        <tr><td><code>seo__estado_implementacion</code></td><td>Implementación Pendiente / Hecha / por cliente (+ Fase 2).</td></tr>
+        <tr><td><code>bloqueo_creacion_memoria_1_manual</code> · <code>..._2_manual</code></td><td>Bloqueos manuales de Tramitación, con taxonomía Prod / Auto (OPS IT) / CS por producto.</td></tr>
+        <tr><td><code>validacion_qa_brief_minimo</code></td><td>“Falta información” / “Falta enlace de cuenta de RRSS” / “Rechazado por alcance” + stage INBOX = brief rechazado.</td></tr>
         <tr><td><code>check__programacion_fase_anual</code></td><td>“si” = Fase Anual RRSS programada (evidencia asegurada).</td></tr>
-        <tr><td><code>pipeline_stage</code></td><td>INBOX · SEGUIMIENTO RRSS (593907958) · FINALIZADO RRSS (593899732).</td></tr>
+        <tr><td><code>pipeline_stage</code></td><td>Pipeline por producto (RRSS / SEO / WEB-ECOM); ver A4.</td></tr>
       </tbody>
     </table></div>
 
     <div class="anx-h">A2 · Catálogo de tags por dimensión</div>
     <div class="card">
-      <p style="margin:0 0 6px"><b>Bloqueos DUROS</b> (<code>bloqueo__detalle</code>) → fuerzan ALTO en Creación:</p>
-      <div><span class="tag hard">Falta credenciales de acceso</span><span class="tag hard">2FA</span><span class="tag hard">Sitio web no carga</span><span class="tag hard">Falta migración</span><span class="tag hard">Falta dominio</span><span class="tag hard">Capturas Registrador</span><span class="tag hard">Cambio sector</span><span class="tag hard">Vinculación Metricool</span><span class="tag hard">Falta enlace</span></div>
-      <p style="margin:16px 0 6px"><b>Casos especiales RECUPERABLES</b> (<code>casos_especiales</code>) → MEDIO en Creación, señal de evidencia RRSS:</p>
-      <div><span class="tag soft">Revinculación Metricool</span><span class="tag soft">Reprogramación Metricool</span><span class="tag soft">Reprogramación manual</span></div>
-      <p style="margin:16px 0 0;font-size:13px;color:var(--ink-3)">⚠ Valores a confirmar contra los enums reales del objeto 2-110970937 (pendiente de extracción vía MCP HubSpot).</p>
+      <p style="margin:0 0 6px"><b>Bloqueos DUROS</b> (<code>bloqueo__detalle</code>, valores reales) → fuerzan ALTO en Creación:</p>
+      <div><span class="tag hard">Falta Credenciales de Acceso.</span><span class="tag hard">2FA</span><span class="tag hard">Sitio Web no Carga</span><span class="tag hard">Falta migración</span><span class="tag hard">Falta dominio</span><span class="tag hard">Capturas del Registrador del Dominio</span><span class="tag hard">Cambio de sector</span><span class="tag hard">Falta Vincular a Metricool</span><span class="tag hard">Falta Enlace de Cuenta de RRSS</span><span class="tag hard">Sitio WEB no Apto para SEO</span><span class="tag hard">SEO - Gestión o compra por cliente</span></div>
+      <p style="margin:16px 0 6px"><b>Casos especiales RECUPERABLES</b> (<code>casos_especiales</code>, valores reales) → MEDIO en Creación, señal de evidencia RRSS/SEO:</p>
+      <div><span class="tag soft">Revinculación Metricool</span><span class="tag soft">Reprogramación Metricool</span><span class="tag soft">Reprogramación manual</span><span class="tag soft">Programación intermitente</span><span class="tag soft">SEO - Cliente implementa estrategia</span><span class="tag soft">SEO – Espera rendimiento</span></div>
     </div>
 
     <div class="anx-h">A3 · Filtros por tarjeta × producto × nivel</div>
@@ -507,7 +484,7 @@
       <thead><tr><th>Nivel</th><th>RRSS</th><th>SEO</th><th>WEB</th></tr></thead>
       <tbody>
         <tr><td colspan="4" style="background:var(--surface-2);font-weight:700">MEM 1 (Por Crear / Por Presentar)</td></tr>
-        <tr><td><span class="pill alto">Alto</span></td><td>tag <i>Brief Rechazado</i> / <i>Falta enlace</i>, o ≤30 d</td><td>tag <i>Sitio web no carga</i> / <i>Brief Rechazado</i>, o ≤30 d</td><td>tags <i>Migración/Dominio/Capturas/2FA/Cambio sector/Web no carga</i> / Brief rech., o ≤30 d</td></tr>
+        <tr><td><span class="pill alto">Alto</span></td><td>Brief rechazado / <i>Falta Enlace de Cuenta de RRSS</i>, o ≤30 d</td><td><i>Sitio Web no Carga</i> / Brief rechazado, o ≤30 d</td><td><i>Falta migración / Falta dominio / Capturas Registrador / 2FA / Cambio de sector / Sitio Web no Carga</i> / Brief rech., o ≤30 d</td></tr>
         <tr><td><span class="pill medio">Medio</span></td><td>30–60 d sin bloqueo</td><td>30–60 d sin bloqueo</td><td>30–60 d sin bloqueo</td></tr>
         <tr><td><span class="pill bajo">Bajo</span></td><td>60–120 d</td><td>60–120 d</td><td>60–120 d</td></tr>
         <tr><td colspan="4" style="background:var(--surface-2);font-weight:700">MEM 2 (Por Crear / Por Presentar)</td></tr>
@@ -518,14 +495,16 @@
     </table></div>
     <div class="note"><b>Reglas transversales:</b> (1) tag bloqueante duro o <code>bloqueo_creacion_memoria_1/2_manual</code> activo → fuerza ALTO. (2) Evidencia ausente → mínimo MEDIO aunque el tiempo sea BAJO; si además tiempo ALTO → ROJO (doble riesgo). (3) Base poblacional: excluir estados terminales de memoria (FINALIZADO POR PDC, MEM. 1 CADUCADA, DESISTIDO, MEM. 2 COBRADA/MINORADA), reutilizando las exclusiones del query de <code>hs_projects_pcs</code>.</div>
 
-    <div class="anx-h">A4 · IDs y enums de referencia</div>
+    <div class="anx-h">A4 · IDs y enums de referencia (reales)</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Elemento</th><th>Valor interno</th></tr></thead>
       <tbody>
         <tr><td>Objeto projects</td><td><code>2-110970937</code></td></tr>
-        <tr><td>Stage SEGUIMIENTO (RRSS)</td><td><code>593907958</code></td></tr>
-        <tr><td>Stage FINALIZADO (RRSS)</td><td><code>593899732</code></td></tr>
-        <tr><td>Stage Brief sin oficializar</td><td><code>INBOX</code></td></tr>
+        <tr><td>Pipeline RRSS · stages clave</td><td>INBOX <code>593899731</code> · SEGUIMIENTO <code>593907958</code> · FINALIZADO <code>593899732</code></td></tr>
+        <tr><td>Pipeline SEO · stages clave</td><td>ENTREGA ESTRATEGIA <code>593919170</code> · ENTREGA IMPLEMENTACIÓN <code>593919174</code> · SEGUIMIENTO <code>593919180</code> · FINALIZADO <code>593919181</code></td></tr>
+        <tr><td>Pipeline WEB/ECOM · stages clave</td><td>INBOX <code>270698459</code> · SEGUIMIENTO <code>593899729</code> · FINALIZADO <code>270698460</code></td></tr>
+        <tr><td><code>seo__estado_implementacion</code></td><td>Implementación Pendiente · Implementación Hecha · Implementación por cliente · (+ Fase 2)</td></tr>
+        <tr><td><code>validacion_qa_brief_minimo</code></td><td>Todo OK · Falta información · Rechazado por alcance · Falta enlace de cuenta de RRSS</td></tr>
       </tbody>
     </table></div>
   </div>
