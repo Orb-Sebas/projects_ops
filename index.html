@@ -148,6 +148,17 @@
     border-radius:5px;padding:1px 6px;color:#6b21a8;display:inline-block;margin-top:5px}
   .drops .dfield + .dfield{margin-left:5px}
 
+  /* ---------- HAPPY PATH ---------- */
+  .happy{display:flex;gap:13px;align-items:flex-start;margin:14px 0 0;padding:14px 18px;border-radius:14px;
+    background:var(--green-tint);border:1px solid #b8e6cc}
+  .happy .hk{flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;
+    font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .happy .ht{font-weight:700;color:#0f6a3a}
+  .happy .htxt{color:var(--ink-2);font-size:14.5px}
+  .happy .dfield{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#fff;
+    border:1px solid #b8e6cc;border-radius:5px;padding:1px 6px;color:#0f6a3a;display:inline-block;margin-top:5px}
+  .happy .dfield + .dfield{margin-left:5px}
+
   /* ---------- TABLES ---------- */
   .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);background:var(--surface)}
   table{border-collapse:collapse;width:100%;font-size:14px}
@@ -275,6 +286,7 @@
     <div class="legend">
       <span><span class="sw" style="background:var(--red)"></span>Punto de caída de creación / tramitación</span>
       <span><span class="sw" style="background:var(--evi)"></span>Punto de caída de evidencia</span>
+      <span><span class="sw" style="background:var(--green)"></span>Happy path (señal de que va sano)</span>
     </div>
 
     <!-- RRSS -->
@@ -303,6 +315,7 @@
         <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Programación Fase Anual» <span class="at">· el punto crítico de RRSS</span></span> — <span class="dtxt">Fase Anual no programada o caída de programación → <b>&lt;12 publicaciones en los últimos 3 meses</b> → sin evidencia que justificar. Se ve meses antes del mes 12.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">casos_especiales = "Revinculación Metricool" / "Reprogramación Metricool" / "Reprogramación manual" / "Programación intermitente"</span><span class="dfield">check__programacion_fase_anual ≠ si · stage ∉ {SEGUIMIENTO 593907958, FINALIZADO 593899732}</span></div></li>
         <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Sin programación (RRSS)" / "Prod - Error en programación (RRSS)"</span></div></li>
       </ul>
+      <div class="happy"><span class="hk">✓</span><div><span class="ht">Happy path RRSS</span> — <span class="htxt">Fase Anual <b>programada</b>, <b>sin bloqueos</b> activos y proyecto en stage <b>SEGUIMIENTO</b> o <b>FINALIZADO</b>.</span><br><span class="dfield">check__programacion_fase_anual = si</span><span class="dfield">sin bloqueo__detalle / bloqueo manual</span><span class="dfield">pipeline_stage ∈ {593907958, 593899732}</span></div></div>
     </div>
 
     <!-- SEO -->
@@ -331,6 +344,7 @@
         <li><span class="dmark evi">3</span><div class="dbody"><span class="dstep">En «Data orgánica + competidores»</span> — <span class="dtxt">aunque se implemente, <b>SE Ranking no recoge dato orgánico ni competidores</b> en los últimos 3 meses → sin evidencia. Verificación externa al CRM.</span> <span class="pill evi">Evidencia</span><br><span class="dfield">SE Ranking (API / revisión manual)</span><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Proyecto no creado en SE Ranking (SEO)"</span></div></li>
         <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar»</span> — <span class="dtxt">bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Presentación incompleta (SEO)" / "Prod - Directorios caídos (SEO)"</span></div></li>
       </ul>
+      <div class="happy"><span class="hk">✓</span><div><span class="ht">Happy path SEO</span> — <span class="htxt">estrategia con <b>implementación hecha</b> y proyecto en stage <b>SEGUIMIENTO</b> (dato orgánico generándose).</span><br><span class="dfield">seo__estado_implementacion = "Implementación Hecha"</span><span class="dfield">pipeline_stage = 593919180 (SEGUIMIENTO)</span></div></div>
       <div class="note"><b>Mayor dependencia operativa del modelo:</b> el dato de SEO no vive en HubSpot. Requiere un campo espejo poblado por automatización (API SE Ranking) o revisión manual para poder marcar el riesgo de evidencia SEO.</div>
     </div>
 
@@ -360,6 +374,7 @@
         <li><span class="dmark">3</span><div class="dbody"><span class="dstep">En «Capturas / evidencias»</span> — <span class="dtxt">sitio web no carga, credenciales incorrectas o 2FA impiden acceder y capturar.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle = "Sitio Web no Carga" / "Falta Credenciales de Acceso." / "2FA"</span></div></li>
         <li><span class="dmark">4</span><div class="dbody"><span class="dstep">En «MEM 2 crear / presentar» <span class="at">· hasta mes 15</span></span> — <span class="dtxt">cambio de sector que altera el alcance y genera subsanación, bloqueo manual de Tramitación, o memoria sin presentar entre el mes 13 y 15.</span> <span class="pill crea">Creación</span><br><span class="dfield">bloqueo__detalle = "Cambio de sector"</span><span class="dfield">bloqueo_creacion_memoria_2_manual = "Prod - Sitio web no carga (WEB)" / "Prod - Falta migración (WEB)"</span></div></li>
       </ul>
+      <div class="happy"><span class="hk">✓</span><div><span class="ht">Happy path WEB</span> — <span class="htxt">web activa y <b>sin el bloqueo «Sitio Web no Carga»</b> en cualquier stage del flujo (puede justificar desde que la web carga).</span><br><span class="dfield">bloqueo__detalle ≠ "Sitio Web no Carga"</span><span class="dfield">cualquier stage</span></div></div>
     </div>
   </div>
 </section>
